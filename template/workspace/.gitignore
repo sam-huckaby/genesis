@@ -1,0 +1,8 @@
+state/
+projects/**/.git/
+seed/server/node_modules/
+seed/ui/web/node_modules/
+seed/shared/node_modules/
+seed/server/dist/
+seed/ui/web/dist/
+.DS_Store

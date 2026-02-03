@@ -1,0 +1,51 @@
+{
+  "bg": "#f5f3ef",
+  "surface": "#fffaf0",
+  "text": "#1c1c1c",
+  "muted": "#6d6355",
+  "border": "#e6dccb",
+  "accent": "#c17b3a",
+  "accentSoft": "rgba(193, 123, 58, 0.2)",
+  "success": "#2f9e44",
+  "card": {
+    "bg": "#fffaf0",
+    "border": "#e6dccb",
+    "title": "#1c1c1c"
+  },
+  "button": {
+    "primary": {
+      "bg": "#c17b3a",
+      "text": "#1c1c1c",
+      "hoverBg": "#d08a49",
+      "activeBg": "#b06d31",
+      "pressedBg": "#945a28",
+      "border": "#c17b3a"
+    },
+    "secondary": {
+      "bg": "rgba(193, 123, 58, 0.15)",
+      "text": "#8d5a2b",
+      "hoverBg": "rgba(193, 123, 58, 0.25)",
+      "activeBg": "rgba(193, 123, 58, 0.35)",
+      "pressedBg": "rgba(193, 123, 58, 0.45)",
+      "border": "rgba(193, 123, 58, 0.25)"
+    },
+    "tertiary": {
+      "bg": "transparent",
+      "text": "#c17b3a",
+      "hoverBg": "rgba(193, 123, 58, 0.12)",
+      "activeBg": "rgba(193, 123, 58, 0.18)",
+      "pressedBg": "rgba(193, 123, 58, 0.24)",
+      "border": "rgba(193, 123, 58, 0.35)"
+    },
+    "disabled": {
+      "bg": "#e9e3d8",
+      "text": "#a49a8b",
+      "border": "#e0d8cb"
+    }
+  },
+  "badge": {
+    "bg": "rgba(193, 123, 58, 0.15)",
+    "text": "#c17b3a",
+    "border": "rgba(193, 123, 58, 0.2)"
+  }
+}

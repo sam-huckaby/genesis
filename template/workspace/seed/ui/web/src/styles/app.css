@@ -1,0 +1,410 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: linear-gradient(120deg, var(--accentSoft), rgba(0, 0, 0, 0));
+}
+
+.app-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.app-nav {
+  display: flex;
+  gap: 12px;
+}
+
+.app-nav a {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--card-bg);
+}
+
+.app-content {
+  padding: 24px;
+}
+
+input,
+select,
+button {
+  font: inherit;
+}
+
+textarea {
+  font: inherit;
+  width: 100%;
+}
+
+ul {
+  padding-left: 20px;
+}
+
+.panel {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 16px;
+  border-radius: 12px;
+  margin: 16px 0;
+  display: grid;
+  gap: 12px;
+}
+
+.panel label {
+  display: grid;
+  gap: 6px;
+}
+
+.task-editor {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 16px;
+  border-radius: 12px;
+  margin: 16px 0;
+}
+
+.task-list {
+  display: grid;
+  gap: 8px;
+}
+
+.task-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.task-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.chat-message {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 12px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  white-space: pre-wrap;
+}
+
+mark {
+  background: var(--accent-soft);
+}
+
+.task-board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.task-column {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 12px;
+  border-radius: 12px;
+  min-height: 200px;
+}
+
+.task-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.diff-file {
+  margin-top: 16px;
+}
+
+.diff-block {
+  background: #1d1f21;
+  color: #f8f8f2;
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.diff-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  background: #1d1f21;
+  color: #f8f8f2;
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.diff-split pre {
+  margin: 0;
+}
+
+.diff-added {
+  background: rgba(60, 179, 113, 0.2);
+}
+
+.diff-removed {
+  background: rgba(220, 20, 60, 0.2);
+}
+
+.diff-context {
+  color: inherit;
+}
+
+.onboarding {
+  display: grid;
+  gap: 16px;
+}
+
+.onboarding-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.onboarding-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.dashboard-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 16px;
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.status-pill {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--card-border);
+  color: var(--muted);
+}
+
+.status-pill.success {
+  border-color: rgba(81, 207, 102, 0.4);
+  color: var(--success);
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  background: rgba(81, 207, 102, 0.2);
+  color: var(--success);
+  font-weight: 700;
+}
+
+.project-list {
+  list-style: none;
+  padding-left: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.badge {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  border: 1px solid var(--badge-border);
+}
+
+.primary-link {
+  display: inline-flex;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: var(--button-tertiary-text);
+  padding: 0;
+  cursor: pointer;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 16px;
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.card-title {
+  margin: 0;
+  color: var(--card-title);
+  font-size: 18px;
+}
+
+.card-body {
+  display: grid;
+  gap: 10px;
+}
+
+.btn {
+  border-radius: 10px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  height: 40px;
+  min-height: 40px;
+  transition: transform 0.05s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-primary {
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
+  border-color: var(--button-primary-border);
+}
+
+.btn-primary:hover {
+  background: var(--button-primary-hoverBg);
+}
+
+.btn-primary.is-active {
+  background: var(--button-primary-activeBg);
+}
+
+.btn-primary:active {
+  background: var(--button-primary-pressedBg);
+}
+
+.btn-secondary {
+  background: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  border-color: var(--button-secondary-border);
+}
+
+.btn-secondary:hover {
+  background: var(--button-secondary-hoverBg);
+}
+
+.btn-secondary.is-active {
+  background: var(--button-secondary-activeBg);
+}
+
+.btn-secondary:active {
+  background: var(--button-secondary-pressedBg);
+}
+
+.btn-tertiary {
+  background: var(--button-tertiary-bg);
+  color: var(--button-tertiary-text);
+  border-color: var(--button-tertiary-border);
+}
+
+.btn-tertiary:hover {
+  background: var(--button-tertiary-hoverBg);
+}
+
+.btn-tertiary.is-active {
+  background: var(--button-tertiary-activeBg);
+}
+
+.btn-tertiary:active {
+  background: var(--button-tertiary-pressedBg);
+}
+
+.btn:disabled {
+  background: var(--button-disabled-bg);
+  color: var(--button-disabled-text);
+  border-color: var(--button-disabled-border);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.brief-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  background: var(--card-bg);
+  border: 1px dashed var(--card-border);
+  padding: 10px;
+  border-radius: 10px;
+}
