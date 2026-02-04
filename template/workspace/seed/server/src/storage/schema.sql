@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS changesets (
   status TEXT NOT NULL,
   summary TEXT NOT NULL,
   base_revision TEXT NOT NULL,
+  stash_ref TEXT,
+  thread_id TEXT,
+  parent_id INTEGER,
+  close_reason TEXT,
   commit_hash TEXT,
   project_commit_hash TEXT,
   created_at TEXT NOT NULL
@@ -82,4 +86,12 @@ CREATE TABLE IF NOT EXISTS changeset_files (
   changeset_id INTEGER NOT NULL,
   path TEXT NOT NULL,
   diff_text TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS changeset_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  changeset_id INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );

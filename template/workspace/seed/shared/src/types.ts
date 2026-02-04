@@ -112,5 +112,40 @@ export type ChangesetDetail = {
   summary: string;
   status: string;
   baseRevision: string;
+  createdAt?: string;
+  parentId?: number | null;
+  closeReason?: string | null;
+  stashRef?: string | null;
   files: { path: string; diff: string }[];
+};
+
+export type ChangesetTestRequest = {
+  force?: boolean;
+};
+
+export type ChangesetTestResponse = {
+  applied: boolean;
+  warning?: string;
+};
+
+export type ChangesetCloseRequest = {
+  reason?: string;
+};
+
+export type ChangesetRebuildRequest = {
+  mode?: "branch" | "replace";
+  summary?: string;
+  diff?: string;
+};
+
+export type ChangesetRebuildResponse = {
+  ok: boolean;
+  stashRef: string;
+  changesetId?: number;
+  parentId?: number;
+};
+
+export type ChangesetChatMessage = {
+  role: "user" | "assistant";
+  content: string;
 };

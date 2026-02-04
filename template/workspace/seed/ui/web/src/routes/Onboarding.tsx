@@ -24,6 +24,9 @@ export default function Onboarding() {
       .catch(() => setState(null));
   }, []);
 
+  const hasApiKey = state?.hasApiKey ?? false;
+  const hasProjects = (state?.projects ?? []).length > 0;
+
   const projectBadge = useMemo(
     () => ({
       nextjs: "Next",
@@ -42,13 +45,45 @@ export default function Onboarding() {
       await apiPost("/api/onboarding/api-key", { provider: "openai", apiKey });
       setMessage("API key saved.");
       setShowKeyForm(false);
+      const updated = await apiGet<OnboardingState>("/api/onboarding/state");
+      setState(updated);
     } catch (error) {
       setMessage("Failed to save API key.");
     }
   };
 
+  if (!hasApiKey) {
+    return (
+      <section className="onboarding onboarding-centered">
+        <Card
+          title="Add API Key"
+          footer={
+            <Button type="button" onClick={saveApiKey}>
+              Save key
+            </Button>
+          }
+        >
+          <p className="muted">
+            This is an AI-driven workspace and requires an API key to continue.
+          </p>
+          <input
+            type="password"
+            placeholder="OpenAI API key"
+            value={apiKey}
+            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+              setApiKey(event.target.value)
+            }
+          />
+          {message ? <p className="error-indicator">{message}</p> : null}
+        </Card>
+      </section>
+    );
+  }
+
+  const showExisting = hasProjects;
+
   return (
-    <section className="onboarding">
+    <section className={`onboarding ${hasProjects ? "" : "onboarding-centered"}`}>
       <div className="onboarding-header">
         <div>
           <h1>Onboarding</h1>
@@ -58,7 +93,7 @@ export default function Onboarding() {
         </div>
       </div>
       {message ? <p>{message}</p> : null}
-      <div className="onboarding-grid">
+      <div className={hasProjects ? "onboarding-grid" : "onboarding-centered-grid"}>
         <Card
           title="API key"
           headerMeta={
@@ -113,22 +148,24 @@ export default function Onboarding() {
           <p className="muted">Describe your app and get a scaffold recommendation.</p>
         </Card>
 
-        <Card title="Existing projects">
-          {state?.projects?.length ? (
-            <ul className="project-list">
-              {state.projects.map((project) => (
-                <li key={project.name} className="project-row">
-                  <span className="badge">
-                    {projectBadge[project.type as keyof typeof projectBadge] ?? "App"}
-                  </span>
-                  <Link to={`/chat?project=${project.name}`}>{project.name}</Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="muted">No projects yet.</p>
-          )}
-        </Card>
+        {showExisting ? (
+          <Card title="Existing projects">
+            {state?.projects?.length ? (
+              <ul className="project-list">
+                {state.projects.map((project) => (
+                  <li key={project.name} className="project-row">
+                    <span className="badge">
+                      {projectBadge[project.type as keyof typeof projectBadge] ?? "App"}
+                    </span>
+                    <Link to={`/chat?project=${project.name}`}>{project.name}</Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">No projects yet.</p>
+            )}
+          </Card>
+        ) : null}
       </div>
     </section>
   );

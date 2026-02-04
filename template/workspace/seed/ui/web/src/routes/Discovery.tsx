@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiPost } from "../api/client.js";
+import { apiGet, apiPost } from "../api/client.js";
 import Button from "../components/Button.js";
 import type {
   CreateProjectRequest,
@@ -11,7 +11,6 @@ import type {
   DiscoveryMessageResponse,
   ProjectType
 } from "@shared/types";
-import TaskSuggestionsEditor from "../components/TaskSuggestionsEditor.js";
 
 type DiscoveryMessage = {
   role: "user" | "assistant";
@@ -31,12 +30,12 @@ export default function Discovery() {
   const [projectName, setProjectName] = useState("");
   const [briefText, setBriefText] = useState("");
   const [ready, setReady] = useState(false);
+  const [showScaffold, setShowScaffold] = useState(false);
   const [alternatives, setAlternatives] = useState<{ type: ProjectType; why: string[] }[]>([]);
-  const [suggestedTasks, setSuggestedTasks] = useState<CreateProjectResponse["suggestedTasks"] | null>(null);
-  const [createdProject, setCreatedProject] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
 
   useEffect(() => {
     apiPost<DiscoveryStartResponse>("/api/discovery/start", {})
@@ -96,6 +95,8 @@ export default function Discovery() {
         if (response.suggestedName) {
           setProjectName(response.suggestedName);
         }
+      } else {
+        setReady(false);
       }
       setIsThinking(false);
     } catch {
@@ -124,7 +125,7 @@ export default function Discovery() {
       setMessage("Enter a project name.");
       return;
     }
-
+    setIsCreating(true);
     await completeDiscovery();
 
     const payload: CreateProjectRequest = {
@@ -140,29 +141,37 @@ export default function Discovery() {
         "/api/projects/create",
         payload
       );
-      setCreatedProject(response.project?.name ?? null);
-      setSuggestedTasks(response.suggestedTasks ?? []);
-      setMessage("Project created. Review suggested tasks.");
+      const createdName = response.project?.name;
+      if (!createdName || !discoveryId) {
+        setMessage("Project creation failed.");
+        setIsCreating(false);
+        return;
+      }
+
+      const transcript = await apiGet<{ messages: { role: string; content: string }[] }>(
+        `/api/discovery/${discoveryId}/messages`
+      );
+      const transcriptText = (transcript.messages ?? [])
+        .map((msg) => `${msg.role.toUpperCase()}: ${msg.content}`)
+        .join("\n\n");
+      const buildPrompt = `${transcriptText}\n\nBased on the above conversation, begin building in this directory.`;
+      await apiPost(`/api/projects/${createdName}/chat`, {
+        role: "user",
+        content: buildPrompt
+      });
+
+      window.dispatchEvent(new Event("seed:projects-updated"));
+      navigate(`/chat?project=${createdName}`);
     } catch {
       setMessage("Project creation failed.");
+      setIsCreating(false);
     }
-  };
-
-  const acceptTasks = async () => {
-    if (!createdProject || !suggestedTasks) {
-      return;
-    }
-    await apiPost("/api/tasks/accept", {
-      projectName: createdProject,
-      tasks: suggestedTasks
-    });
-    navigate(`/chat?project=${createdProject}`);
   };
 
   return (
     <section className="discovery-shell">
       <h1>Discovery</h1>
-      {!ready ? (
+      {!showScaffold ? (
         <div className="discovery-chat">
           <div className="chat-scroll" ref={scrollRef} onScroll={handleScroll}>
             {messages.length === 0 ? (
@@ -211,9 +220,16 @@ export default function Discovery() {
               onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setInput(event.target.value)}
               placeholder="Describe the app you want to build..."
             />
-            <button type="button" onClick={sendMessage}>
-              Send
-            </button>
+            <div className="card-actions">
+              <Button type="button" onClick={sendMessage}>
+                Send
+              </Button>
+              {ready ? (
+                <Button type="button" variant="primary" onClick={() => setShowScaffold(true)}>
+                  Proceed to Recommendations & Scaffolding
+                </Button>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : (
@@ -278,20 +294,13 @@ export default function Discovery() {
           </div>
 
           <div className="panel">
-            <button type="button" onClick={scaffoldProject}>
-              Scaffold project
-            </button>
+            <Button type="button" onClick={scaffoldProject} disabled={isCreating}>
+              {isCreating ? "Creating project..." : "Begin creation"}
+            </Button>
+            {isCreating ? <p className="muted">Scaffolding project...</p> : null}
           </div>
         </div>
       )}
-
-      {suggestedTasks ? (
-        <TaskSuggestionsEditor
-          tasks={suggestedTasks}
-          onChange={setSuggestedTasks}
-          onAccept={acceptTasks}
-        />
-      ) : null}
     </section>
   );
 }

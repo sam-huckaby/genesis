@@ -1,2 +1,8 @@
+# Better not to save stuff in here
 state/
+
+# No one wants these anyways
 node_modules/
+
+# I have my reasons
+watermelon/

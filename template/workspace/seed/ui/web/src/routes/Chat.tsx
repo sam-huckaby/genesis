@@ -48,7 +48,9 @@ export default function Chat() {
   const [params] = useSearchParams();
   const project = params.get("project") ?? "";
   const [messages, setMessages] = useState<Message[]>([]);
-  const [assistantText, setAssistantText] = useState("");
+  const [input, setInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const [activeSelection, setActiveSelection] = useState<Selection | null>(null);
   const [selections, setSelections] = useState<Selection[]>([]);
   const containerRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -81,19 +83,29 @@ export default function Chat() {
       .catch(() => setMessages([]));
   }, [project]);
 
-  const addAssistantMessage = async () => {
-    if (!assistantText.trim() || !project) {
+  const sendMessage = async () => {
+    if (!input.trim() || !project) {
       return;
     }
-    const res = await apiPost<{ id: number }>(`/api/projects/${project}/messages`, {
-      role: "assistant",
-      content: assistantText.trim()
-    });
-    setMessages((prev: Message[]) => [
-      ...prev,
-      { id: res.id, role: "assistant", content: assistantText.trim() }
-    ]);
-    setAssistantText("");
+    setIsSending(true);
+    setMessage(null);
+    const content = input.trim();
+    setInput("");
+    try {
+      const res = await apiPost<{
+        userMessage: Message;
+        assistantMessage: Message;
+      }>(`/api/projects/${project}/chat`, {
+        role: "user",
+        content
+      });
+      setMessages((prev: Message[]) => [...prev, res.userMessage, res.assistantMessage]);
+    } catch {
+      setMessage("Chat request failed. Check API key.");
+      setInput(content);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const captureSelection = (messageId: number) => {
@@ -147,22 +159,27 @@ export default function Chat() {
       <p>Project: {project}</p>
 
       <div className="panel">
-        <h2>Assistant messages</h2>
+        <h2>Chat</h2>
         {messages.length === 0 ? <p>No messages yet.</p> : null}
-        {messages
-          .filter((msg) => msg.role === "assistant")
-          .map((msg) => (
-            <div
-              key={msg.id}
-              className="chat-message"
-              ref={(el) => {
+        {message ? <p className="error-indicator">{message}</p> : null}
+        {messages.map((msg) => (
+          <div
+            key={msg.id}
+            className={`chat-message ${msg.role === "user" ? "chat-message-user" : "chat-message-assistant"}`}
+            ref={(el) => {
+              if (msg.role === "assistant") {
                 containerRefs.current[msg.id] = el;
-              }}
-              onMouseUp={() => captureSelection(msg.id)}
-            >
-              {renderWithHighlights(msg.content, selectionByMessage.get(msg.id) ?? [])}
-            </div>
-          ))}
+              }
+            }}
+            onMouseUp={() => {
+              if (msg.role === "assistant") {
+                captureSelection(msg.id);
+              }
+            }}
+          >
+            <strong>{msg.role}</strong>: {renderWithHighlights(msg.content, selectionByMessage.get(msg.id) ?? [])}
+          </div>
+        ))}
         {activeSelection ? (
           <button type="button" onClick={createTaskFromSelection}>
             Create task from selection
@@ -171,17 +188,17 @@ export default function Chat() {
       </div>
 
       <div className="panel">
-        <h2>Add assistant message</h2>
+        <h2>Send message</h2>
         <textarea
           rows={4}
-          value={assistantText}
+          value={input}
           onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-            setAssistantText(event.target.value)
+            setInput(event.target.value)
           }
-          placeholder="Paste a response you want to capture tasks from..."
+          placeholder="Ask for changes or continue building..."
         />
-        <button type="button" onClick={addAssistantMessage}>
-          Add assistant message
+        <button type="button" onClick={sendMessage} disabled={isSending}>
+          {isSending ? "Sending..." : "Send"}
         </button>
       </div>
     </section>

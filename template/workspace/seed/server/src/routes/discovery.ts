@@ -184,4 +184,22 @@ export function registerDiscoveryRoutes(
       return { ok: true };
     }
   );
+
+  server.get(
+    "/api/discovery/:id/messages",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const id = Number((request.params as { id?: string }).id);
+      if (!id) {
+        return reply.status(400).send({ error: "Missing discovery id" });
+      }
+
+      const rows = context.db
+        .prepare(
+          "SELECT role, content, created_at FROM discovery_messages WHERE discovery_id = ? ORDER BY id"
+        )
+        .all(id) as { role: string; content: string; created_at: string }[];
+
+      return { messages: rows };
+    }
+  );
 }
