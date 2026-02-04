@@ -7,12 +7,14 @@ body {
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   background: var(--bg);
   color: var(--text);
+  overflow: hidden;
 }
 
 .app-shell {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  height: 100vh;
 }
 
 .app-header {
@@ -21,6 +23,9 @@ body {
   justify-content: space-between;
   padding: 16px 24px;
   background: linear-gradient(120deg, var(--accentSoft), rgba(0, 0, 0, 0));
+  position: sticky;
+  top: 0;
+  z-index: 1000;
 }
 
 .app-title {
@@ -45,6 +50,8 @@ body {
 
 .app-content {
   padding: 24px;
+  flex: 1;
+  overflow: auto;
 }
 
 input,
@@ -219,6 +226,12 @@ mark {
   justify-content: space-between;
 }
 
+.card-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .card-actions {
   display: flex;
   gap: 8px;
@@ -305,6 +318,7 @@ mark {
   padding: 16px;
   border-radius: 14px;
   display: grid;
+  grid-template-rows: auto 1fr auto;
   gap: 12px;
 }
 
@@ -312,6 +326,24 @@ mark {
   margin: 0;
   color: var(--card-title);
   font-size: 18px;
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-footer-left {
+  justify-content: flex-start;
+}
+
+.card-footer-center {
+  justify-content: center;
+}
+
+.card-footer-right {
+  justify-content: flex-end;
 }
 
 .card-body {
@@ -331,6 +363,21 @@ mark {
   height: 40px;
   min-height: 40px;
   transition: transform 0.05s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.btn-icon {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn:active {
@@ -407,4 +454,65 @@ mark {
   border: 1px dashed var(--card-border);
   padding: 10px;
   border-radius: 10px;
+}
+
+.discovery-shell {
+  display: grid;
+  gap: 16px;
+  height: 100%;
+}
+
+.discovery-chat {
+  position: relative;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  min-height: 420px;
+  height: 100%;
+  overflow: hidden;
+}
+
+.chat-scroll {
+  padding: 16px 16px 8px 16px;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+}
+
+.chat-bubble {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.chat-composer {
+  padding: 12px 16px 16px 16px;
+  background: var(--card-bg);
+  border-top: 1px solid var(--card-border);
+  display: grid;
+  gap: 8px;
+}
+
+.thinking-indicator {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.error-indicator {
+  color: #d94848;
+  font-size: 13px;
+}
+
+.scroll-to-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 86px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
 }

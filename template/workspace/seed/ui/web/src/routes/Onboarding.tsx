@@ -59,25 +59,17 @@ export default function Onboarding() {
       </div>
       {message ? <p>{message}</p> : null}
       <div className="onboarding-grid">
-        <Card title="API key">
-          <div className="card-header">
-            {state?.hasApiKey ? (
+        <Card
+          title="API key"
+          headerMeta={
+            state?.hasApiKey ? (
               <span className="status-pill success">Installed</span>
             ) : (
               <span className="status-pill">Needed</span>
-            )}
-          </div>
-          <p className="muted">Required for discovery and generation.</p>
-          {showKeyForm ? (
-            <div className="card-body">
-              <input
-                type="password"
-                placeholder="OpenAI API key"
-                value={apiKey}
-                onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                  setApiKey(event.target.value)
-                }
-              />
+            )
+          }
+          footer={
+            showKeyForm ? (
               <div className="card-actions">
                 <Button type="button" onClick={saveApiKey}>
                   Save key
@@ -88,25 +80,37 @@ export default function Onboarding() {
                   </Button>
                 ) : null}
               </div>
-            </div>
-          ) : (
-            <div className="card-body">
-              <div className="status-row">
-                <span className="status-icon">✓</span>
-                <span>API key is installed for this workspace.</span>
-              </div>
+            ) : (
               <Button type="button" variant="tertiary" onClick={() => setShowKeyForm(true)}>
                 Install new key
               </Button>
+            )
+          }
+        >
+          <p className="muted">Required for discovery and generation.</p>
+          {showKeyForm ? (
+            <div>
+              <input
+                type="password"
+                placeholder="OpenAI API key"
+                value={apiKey}
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                  setApiKey(event.target.value)
+                }
+              />
             </div>
-          )}
+          ) : null}
         </Card>
 
-        <Card title="Start new project">
+        <Card
+          title="Start new project"
+          footer={
+            <Link className="btn btn-primary" to="/discovery">
+              Start discovery
+            </Link>
+          }
+        >
           <p className="muted">Describe your app and get a scaffold recommendation.</p>
-          <Link className="btn btn-primary" to="/discovery">
-            Start discovery
-          </Link>
         </Card>
 
         <Card title="Existing projects">

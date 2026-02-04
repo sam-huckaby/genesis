@@ -1,6 +1,7 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost } from "../api/client.js";
+import Button from "../components/Button.js";
 import type {
   CreateProjectRequest,
   CreateProjectResponse,
@@ -21,6 +22,8 @@ const defaultRecommendation: ProjectType = "nextjs";
 
 export default function Discovery() {
   const navigate = useNavigate();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
   const [discoveryId, setDiscoveryId] = useState<number | null>(null);
   const [messages, setMessages] = useState<DiscoveryMessage[]>([]);
   const [input, setInput] = useState("");
@@ -32,6 +35,8 @@ export default function Discovery() {
   const [suggestedTasks, setSuggestedTasks] = useState<CreateProjectResponse["suggestedTasks"] | null>(null);
   const [createdProject, setCreatedProject] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [isThinking, setIsThinking] = useState(false);
+  const [isNearBottom, setIsNearBottom] = useState(true);
 
   useEffect(() => {
     apiPost<DiscoveryStartResponse>("/api/discovery/start", {})
@@ -39,10 +44,27 @@ export default function Discovery() {
       .catch(() => setDiscoveryId(null));
   }, []);
 
+  useEffect(() => {
+    if (isNearBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, isNearBottom]);
+
+  const handleScroll = () => {
+    if (!scrollRef.current) {
+      return;
+    }
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const distance = scrollHeight - scrollTop - clientHeight;
+    setIsNearBottom(distance < 80);
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || !discoveryId) {
       return;
     }
+    setIsThinking(true);
+    setMessage(null);
     const userMsg: DiscoveryMessage = { role: "user", content: input.trim() };
     setMessages((prev: DiscoveryMessage[]) => [...prev, userMsg]);
     setInput("");
@@ -75,7 +97,9 @@ export default function Discovery() {
           setProjectName(response.suggestedName);
         }
       }
+      setIsThinking(false);
     } catch {
+      setIsThinking(false);
       setMessage("Discovery request failed. Check API key.");
     }
   };
@@ -136,16 +160,53 @@ export default function Discovery() {
   };
 
   return (
-    <section>
+    <section className="discovery-shell">
       <h1>Discovery</h1>
-      {message ? <p>{message}</p> : null}
-
       {!ready ? (
-        <div>
-          <div className="panel">
-            <h2>Describe your project</h2>
+        <div className="discovery-chat">
+          <div className="chat-scroll" ref={scrollRef} onScroll={handleScroll}>
+            {messages.length === 0 ? (
+              <p className="muted">No messages yet.</p>
+            ) : (
+              messages.map((msg: DiscoveryMessage, index: number) => (
+                <div key={`${msg.role}-${index}`} className="chat-bubble">
+                  <strong>{msg.role}</strong>: {msg.content}
+                </div>
+              ))
+            )}
+            <div ref={bottomRef} />
+          </div>
+          {!isNearBottom ? (
+            <div className="scroll-to-bottom">
+              <Button
+                variant="icon"
+                icon={
+                  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M12 4v12m0 0l-5-5m5 5l5-5"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                }
+                onClick={() => bottomRef.current?.scrollIntoView({ behavior: "smooth" })}
+                aria-label="Scroll to bottom"
+              />
+            </div>
+          ) : null}
+          <div className="chat-composer">
+            {isThinking ? (
+              <div className="thinking-indicator">
+                Contemplating your input and preparing a response...
+              </div>
+            ) : message ? (
+              <div className="error-indicator">{message}</div>
+            ) : null}
             <textarea
-              rows={6}
+              rows={4}
               value={input}
               onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setInput(event.target.value)}
               placeholder="Describe the app you want to build..."
@@ -153,16 +214,6 @@ export default function Discovery() {
             <button type="button" onClick={sendMessage}>
               Send
             </button>
-          </div>
-
-          <div className="panel">
-            <h2>Discovery transcript</h2>
-            {messages.length === 0 ? <p>No messages yet.</p> : null}
-            {messages.map((msg, index) => (
-              <div key={`${msg.role}-${index}`}>
-                <strong>{msg.role}</strong>: {msg.content}
-              </div>
-            ))}
           </div>
         </div>
       ) : (
