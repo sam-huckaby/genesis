@@ -10,6 +10,8 @@ import { recordEvent } from "../storage/events.js";
 import type {
   CreateProjectRequest,
   CreateProjectResponse,
+  ProjectBuildPromptRequest,
+  ProjectBuildPromptResponse,
   ProjectBrief,
   SaveProjectBriefRequest
 } from "@shared/types";
@@ -21,6 +23,10 @@ type RouteContext = {
 
 function isValidProjectName(name: string): boolean {
   return /^[a-z0-9-]+$/.test(name);
+}
+
+function getGitStatus(dir: string): string {
+  return execFileSync("git", ["status", "--porcelain"], { cwd: dir, encoding: "utf8" }).trim();
 }
 
 export function registerProjectRoutes(
@@ -101,6 +107,18 @@ export function registerProjectRoutes(
         } catch {
           return reply.status(500).send({ error: "Failed to initialize project git repo" });
         }
+      }
+
+      try {
+        if (getGitStatus(projectPathAbs).length > 0) {
+          execFileSync("git", ["add", "."], { cwd: projectPathAbs, stdio: "ignore" });
+          execFileSync("git", ["commit", "-m", "chore: scaffold project"], {
+            cwd: projectPathAbs,
+            stdio: "ignore"
+          });
+        }
+      } catch {
+        return reply.status(500).send({ error: "Failed to create baseline commit" });
       }
 
       const stmt = context.db.prepare(
@@ -221,6 +239,83 @@ export function registerProjectRoutes(
 
       recordEvent(context.db, "project.brief.updated", { length: body.briefText.length }, project.id);
 
+      return { ok: true };
+    }
+  );
+
+  server.post(
+    "/api/projects/:name/build-prompt",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const name = (request.params as { name?: string }).name;
+      const body = request.body as ProjectBuildPromptRequest;
+      if (!name || !body?.prompt) {
+        return reply.status(400).send({ error: "Missing project name or prompt" });
+      }
+
+      const project = context.db
+        .prepare("SELECT id FROM projects WHERE name = ?")
+        .get(name) as { id: number } | undefined;
+
+      if (!project) {
+        return reply.status(404).send({ error: "Project not found" });
+      }
+
+      context.db.prepare("DELETE FROM project_build_prompts WHERE project_id = ?").run(project.id);
+      context.db
+        .prepare(
+          "INSERT INTO project_build_prompts (project_id, prompt_text, created_at) VALUES (?, ?, ?)"
+        )
+        .run(project.id, body.prompt, new Date().toISOString());
+
+      return { ok: true };
+    }
+  );
+
+  server.get(
+    "/api/projects/:name/build-prompt",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const name = (request.params as { name?: string }).name;
+      if (!name) {
+        return reply.status(400).send({ error: "Missing project name" });
+      }
+
+      const project = context.db
+        .prepare("SELECT id FROM projects WHERE name = ?")
+        .get(name) as { id: number } | undefined;
+
+      if (!project) {
+        return reply.status(404).send({ error: "Project not found" });
+      }
+
+      const row = context.db
+        .prepare("SELECT prompt_text, created_at FROM project_build_prompts WHERE project_id = ?")
+        .get(project.id) as { prompt_text: string; created_at: string } | undefined;
+
+      const response: ProjectBuildPromptResponse = row
+        ? { prompt: row.prompt_text, createdAt: row.created_at }
+        : {};
+
+      return response;
+    }
+  );
+
+  server.delete(
+    "/api/projects/:name/build-prompt",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const name = (request.params as { name?: string }).name;
+      if (!name) {
+        return reply.status(400).send({ error: "Missing project name" });
+      }
+
+      const project = context.db
+        .prepare("SELECT id FROM projects WHERE name = ?")
+        .get(name) as { id: number } | undefined;
+
+      if (!project) {
+        return reply.status(404).send({ error: "Project not found" });
+      }
+
+      context.db.prepare("DELETE FROM project_build_prompts WHERE project_id = ?").run(project.id);
       return { ok: true };
     }
   );

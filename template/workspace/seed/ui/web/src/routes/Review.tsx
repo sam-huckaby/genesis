@@ -263,6 +263,9 @@ export default function Review() {
                 <div className="review-list-title">#{cs.id} {cs.summary}</div>
                 <div className="review-list-meta">
                   <span className="status-pill">{cs.status}</span>
+                  {cs.status === "draft" ? (
+                    <span className="draft-pill">Draft proposal in progress</span>
+                  ) : null}
                   <span className="muted">{new Date(cs.createdAt).toLocaleString()}</span>
                 </div>
               </button>
@@ -339,7 +342,7 @@ export default function Review() {
                       type="button"
                       variant="primary"
                       onClick={applyChangeset}
-                      disabled={selected.status !== "pending"}
+                      disabled={selected.status !== "pending" && selected.status !== "draft"}
                     >
                       Accept Changes
                     </Button>

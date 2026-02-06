@@ -183,7 +183,7 @@ export function registerChangesetRoutes(
   server.get("/api/changesets/pending", async () => {
     const rows = context.db
       .prepare(
-        "SELECT id, summary, status, created_at FROM changesets WHERE status IN ('pending', 'blocked', 'rebuilding') ORDER BY created_at DESC"
+        "SELECT id, summary, status, created_at FROM changesets WHERE status IN ('pending', 'blocked', 'rebuilding', 'draft') ORDER BY created_at DESC"
       )
       .all() as { id: number; summary: string; status: string; created_at: string }[];
 
@@ -273,8 +273,8 @@ export function registerChangesetRoutes(
         return reply.status(404).send({ error: "Changeset not found" });
       }
 
-      if (changeset.status !== "pending") {
-        return reply.status(400).send({ error: "Changeset not pending" });
+      if (changeset.status !== "pending" && changeset.status !== "draft") {
+        return reply.status(400).send({ error: "Changeset not pending or draft" });
       }
 
       const status = getGitStatus(context.workspaceDir);

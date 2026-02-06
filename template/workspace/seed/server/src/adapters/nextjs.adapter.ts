@@ -22,6 +22,12 @@ export function createNextJsAdapter(): ProjectAdapter {
           args: ["create", "next-app@latest", projectPathRel, "--yes"],
           allow: "scaffold",
           stdin: "n\n"
+        },
+        {
+          cwdRel: projectPathRel,
+          cmd: "bun",
+          args: ["install"],
+          allow: "build"
         }
       ];
 

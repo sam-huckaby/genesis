@@ -129,6 +129,47 @@ import Button from "../components/Button.js";
 <Button type="button" disabled>Save</Button>
 ```
 
+## ChatBubble
+
+Use `ChatBubble` to render chat messages with a role header and markdown body.
+
+### Props
+
+- `role?: "user" | "assistant"` (default: `"assistant"`)
+- `kind?: "message" | "tool"` (default: `"message"`)
+- `status?: "running" | "done" | "error"`
+- `toolName?: string`
+- `toolMeta?: string`
+- `content?: string`
+- `children?: ReactNode`
+
+### Rules
+
+- Prefer `content` for normal messages; it renders markdown.
+- Use `children` only when you need custom rendering (e.g. selection highlights).
+- The bubble header shows the role automatically.
+- For tool messages, set `kind="tool"` and provide `toolName`/`toolMeta`.
+
+### Examples
+
+```tsx
+import ChatBubble from "../components/ChatBubble.js";
+
+<ChatBubble role="assistant" content="**Summary**\n\n- Step one\n- Step two" />
+```
+
+```tsx
+import ChatBubble from "../components/ChatBubble.js";
+
+<ChatBubble kind="tool" toolName="read_file" toolMeta="path=src/App.tsx" status="running" />
+```
+
+```tsx
+import ChatBubble from "../components/ChatBubble.js";
+
+<ChatBubble role="user" content="Please add a sidebar." />
+```
+
 ## Accessibility
 
 - Always include `aria-label` on icon-only buttons.

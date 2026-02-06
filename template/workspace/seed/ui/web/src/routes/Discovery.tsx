@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client.js";
 import Button from "../components/Button.js";
+import ChatBubble from "../components/ChatBubble.js";
 import type {
   CreateProjectRequest,
   CreateProjectResponse,
@@ -155,9 +156,8 @@ export default function Discovery() {
         .map((msg) => `${msg.role.toUpperCase()}: ${msg.content}`)
         .join("\n\n");
       const buildPrompt = `${transcriptText}\n\nBased on the above conversation, begin building in this directory.`;
-      await apiPost(`/api/projects/${createdName}/chat`, {
-        role: "user",
-        content: buildPrompt
+      await apiPost(`/api/projects/${createdName}/build-prompt`, {
+        prompt: buildPrompt
       });
 
       window.dispatchEvent(new Event("seed:projects-updated"));
@@ -178,9 +178,7 @@ export default function Discovery() {
               <p className="muted">No messages yet.</p>
             ) : (
               messages.map((msg: DiscoveryMessage, index: number) => (
-                <div key={`${msg.role}-${index}`} className="chat-bubble">
-                  <strong>{msg.role}</strong>: {msg.content}
-                </div>
+                <ChatBubble key={`${msg.role}-${index}`} role={msg.role} content={msg.content} />
               ))
             )}
             <div ref={bottomRef} />

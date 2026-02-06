@@ -35,6 +35,28 @@ export function runMigrations(db: Database.Database, baseDir: string) {
   if (!changesetNames.has("close_reason")) {
     db.exec("ALTER TABLE changesets ADD COLUMN close_reason TEXT");
   }
+  if (!changesetNames.has("chat_session_id")) {
+    db.exec("ALTER TABLE changesets ADD COLUMN chat_session_id TEXT");
+  }
+
+  const messageColumns = db.prepare("PRAGMA table_info(messages)").all() as { name: string }[];
+  const messageNames = new Set(messageColumns.map((col) => col.name));
+  if (!messageNames.has("kind")) {
+    db.exec("ALTER TABLE messages ADD COLUMN kind TEXT");
+  }
+  if (!messageNames.has("status")) {
+    db.exec("ALTER TABLE messages ADD COLUMN status TEXT");
+  }
+  if (!messageNames.has("tool_name")) {
+    db.exec("ALTER TABLE messages ADD COLUMN tool_name TEXT");
+  }
+  if (!messageNames.has("tool_meta")) {
+    db.exec("ALTER TABLE messages ADD COLUMN tool_meta TEXT");
+  }
+
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS project_build_prompts (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, prompt_text TEXT NOT NULL, created_at TEXT NOT NULL)"
+  );
 
   db.exec(
     "CREATE TABLE IF NOT EXISTS changeset_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, changeset_id INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL)"

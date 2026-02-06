@@ -79,6 +79,15 @@ export type SaveProjectBriefRequest = {
   briefText: string;
 };
 
+export type ProjectBuildPromptRequest = {
+  prompt: string;
+};
+
+export type ProjectBuildPromptResponse = {
+  prompt?: string;
+  createdAt?: string;
+};
+
 export type TaskSelectionRequest = {
   messageId: number;
   start: number;
@@ -88,6 +97,18 @@ export type TaskSelectionRequest = {
 export type TaskSelectionResponse = {
   ok: boolean;
   taskId: number;
+};
+
+export type ProjectChatMessage = {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  kind?: "message" | "tool";
+  status?: "running" | "done" | "error";
+  toolName?: string | null;
+  toolMeta?: string | null;
+  selections?: { start: number; end: number }[];
 };
 
 export type ChangesetProposalRequest = {

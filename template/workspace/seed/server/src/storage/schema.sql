@@ -49,11 +49,22 @@ CREATE TABLE IF NOT EXISTS project_briefs (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS project_build_prompts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL,
+  prompt_text TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   project_id INTEGER NOT NULL,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  kind TEXT,
+  status TEXT,
+  tool_name TEXT,
+  tool_meta TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -74,6 +85,7 @@ CREATE TABLE IF NOT EXISTS changesets (
   base_revision TEXT NOT NULL,
   stash_ref TEXT,
   thread_id TEXT,
+  chat_session_id TEXT,
   parent_id INTEGER,
   close_reason TEXT,
   commit_hash TEXT,
