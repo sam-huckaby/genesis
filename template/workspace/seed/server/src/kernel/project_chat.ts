@@ -1,13 +1,18 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import {
-  diffTouchesSensitivePath,
-  extractDiffPaths,
-  isSensitivePath,
-  listProjectFiles,
-  readProjectFile
-} from "../util/project_files.js";
+import { TOOL_SPECS } from "./tools/tool_specs.js";
+import { listFiles } from "./tools/list_files.js";
+import { readFileTool } from "./tools/read_file.js";
+import { readFiles } from "./tools/read_files.js";
+import { statPath } from "./tools/stat.js";
+import { grep } from "./tools/grep.js";
+import { projectInfo } from "./tools/project_info.js";
+import { applyPatch } from "./tools/apply_patch.js";
+import { gitStatus } from "./tools/git_status.js";
+import { gitDiff } from "./tools/git_diff.js";
+import { searchToolsTool } from "./tools/search_tools.js";
+import { describeTool } from "./tools/describe_tool.js";
+import type { ToolResult } from "./tools/tool_result.js";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -27,69 +32,14 @@ type OpenAiMessage = {
   name?: string;
 };
 
-const TOOL_DEFS_READ = [
-  {
-    type: "function",
-    function: {
-      name: "list_files",
-      description:
-        "List project files. Provide a relative path within the project (default '.') and optional limits.",
-      parameters: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "Relative path within project" },
-          maxDepth: { type: "number", description: "Max directory depth" },
-          maxEntries: { type: "number", description: "Max number of files" }
-        },
-        additionalProperties: false
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "read_file",
-      description: "Read a file by relative path within the project.",
-      parameters: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "Relative file path" }
-        },
-        required: ["path"],
-        additionalProperties: false
-      }
-    }
+const TOOL_DEFS = TOOL_SPECS.map((spec) => ({
+  type: "function",
+  function: {
+    name: spec.name,
+    description: spec.description,
+    parameters: spec.argsSchema
   }
-];
-
-const TOOL_DEFS_BUILD = [
-  ...TOOL_DEFS_READ,
-  {
-    type: "function",
-    function: {
-      name: "patch_file",
-      description:
-        "Apply a patch using apply_patch format. Use *** Begin Patch and *** End Patch blocks. " +
-        "Supports *** Update File, *** Add File, and *** Delete File. " +
-        "For updates, include @@ hunks and prefix lines with space, +, or -. " +
-        "Example:\n" +
-        "*** Begin Patch\n" +
-        "*** Update File: app/page.tsx\n" +
-        "@@\n" +
-        "-console.log('old');\n" +
-        "+console.log('new');\n" +
-        "*** End Patch\n",
-      parameters: {
-        type: "object",
-        properties: {
-          diff: { type: "string", description: "Unified diff patch" }
-        },
-        required: ["diff"],
-        additionalProperties: false
-      }
-    }
-  }
-];
+}));
 
 type ChatMode = "plan" | "build";
 
@@ -105,27 +55,39 @@ type ToolEndPayload = {
   summary?: string;
 };
 
-type ToolResult = { ok: boolean; result?: unknown; error?: string };
+type ToolExecutor = (
+  call: ToolCall,
+  mode: ChatMode
+) => Promise<ToolResult<unknown> | null> | ToolResult<unknown> | null;
 
-type ToolExecutor = (call: ToolCall, mode: ChatMode) => Promise<ToolResult | null> | ToolResult | null;
+type ToolContext = {
+  workspaceDir: string;
+  projectRootAbs: string;
+  projectRootRel: string;
+};
+
+type ToolHandler = (
+  args: Record<string, unknown>,
+  context: ToolContext
+) => Promise<ToolResult<unknown>>;
 
 function buildSystemPrompt(projectRootRel: string, mode: ChatMode): string {
   return (
     "You are a project assistant working inside a project workspace. " +
     `Project root: ${projectRootRel}. ` +
     `Mode: ${mode}. ` +
-    "Always respond with a normal assistant message when no tools are needed. " +
-    "Use list_files and read_file to inspect code. " +
-    "In build mode you may use patch_file to propose edits using apply_patch format. " +
-    "Do not use unified diff format. " +
-    "Do not access sensitive files (secrets, env files, keys) or build artifacts."
+    "You may only call the available tools. " +
+    "Use search_tools to discover tools and describe_tool for full schemas. " +
+    "All filesystem and git tools require a root parameter; use the project root path. " +
+    "Do not output TypeScript code blocks for execution. " +
+    "Do not access secrets, env files, keys, or build artifacts."
   );
 }
 
 async function callOpenAi(
   apiKey: string,
   messages: OpenAiMessage[],
-  tools: typeof TOOL_DEFS_READ | typeof TOOL_DEFS_BUILD
+  tools: typeof TOOL_DEFS
 ): Promise<{ message: OpenAiMessage; toolCalls?: ToolCall[]; raw: string }> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -157,77 +119,163 @@ async function callOpenAi(
   return { message, toolCalls: message.tool_calls, raw };
 }
 
+function resolveRootArg(
+  input: unknown,
+  workspaceDir: string,
+  projectRootAbs: string
+): string {
+  if (typeof input === "string" && input.trim().length > 0) {
+    return path.isAbsolute(input) ? input : path.resolve(workspaceDir, input);
+  }
+  return projectRootAbs;
+}
+
+function invalidArgs(message: string, details?: unknown): ToolResult<unknown> {
+  return { ok: false, error: { code: "INVALID_ARGS", message, details } };
+}
+
+const TOOL_HANDLERS: Record<string, ToolHandler> = {
+  list_files: async (args, context) => {
+    const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
+    return listFiles({
+      root,
+      globs: Array.isArray(args.globs) ? (args.globs as string[]) : undefined,
+      maxDepth: typeof args.maxDepth === "number" ? args.maxDepth : undefined,
+      maxResults: typeof args.maxResults === "number" ? args.maxResults : undefined,
+      includeDirs: typeof args.includeDirs === "boolean" ? args.includeDirs : undefined
+    });
+  },
+  read_file: async (args, context) => {
+    const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
+    const filePath = typeof args.path === "string" ? args.path : "";
+    if (!filePath) {
+      return invalidArgs("Missing path");
+    }
+    const range = typeof args.range === "object" && args.range
+      ? (args.range as { startLine?: number; endLine?: number })
+      : undefined;
+    return readFileTool({
+      root,
+      path: filePath,
+      maxBytes: typeof args.maxBytes === "number" ? args.maxBytes : undefined,
+      range
+    });
+  },
+  read_files: async (args, context) => {
+    const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
+    const paths = Array.isArray(args.paths) ? (args.paths as string[]) : [];
+    if (paths.length === 0) {
+      return invalidArgs("Missing paths");
+    }
+    return readFiles({
+      root,
+      paths,
+      maxBytesEach: typeof args.maxBytesEach === "number" ? args.maxBytesEach : undefined,
+      maxTotalBytes: typeof args.maxTotalBytes === "number" ? args.maxTotalBytes : undefined
+    });
+  },
+  stat: async (args, context) => {
+    const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
+    const targetPath = typeof args.path === "string" ? args.path : "";
+    if (!targetPath) {
+      return invalidArgs("Missing path");
+    }
+    return statPath({ root, path: targetPath });
+  },
+  grep: async (args, context) => {
+    const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
+    const query = typeof args.query === "string" ? args.query : "";
+    if (!query) {
+      return invalidArgs("Missing query");
+    }
+    return grep({
+      root,
+      query,
+      isRegex: typeof args.isRegex === "boolean" ? args.isRegex : undefined,
+      caseSensitive: typeof args.caseSensitive === "boolean" ? args.caseSensitive : undefined,
+      globs: Array.isArray(args.globs) ? (args.globs as string[]) : undefined,
+      maxResults: typeof args.maxResults === "number" ? args.maxResults : undefined,
+      maxFiles: typeof args.maxFiles === "number" ? args.maxFiles : undefined
+    });
+  },
+  project_info: async (args, context) => {
+    const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
+    return projectInfo({ root });
+  },
+  apply_patch: async (args, context) => {
+    const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
+    const unifiedDiff = typeof args.unifiedDiff === "string" ? args.unifiedDiff : "";
+    if (!unifiedDiff) {
+      return invalidArgs("Missing unifiedDiff");
+    }
+    return applyPatch({
+      root,
+      unifiedDiff,
+      dryRun: typeof args.dryRun === "boolean" ? args.dryRun : undefined,
+      maxFiles: typeof args.maxFiles === "number" ? args.maxFiles : undefined,
+      maxBytes: typeof args.maxBytes === "number" ? args.maxBytes : undefined,
+      denyGlobs: Array.isArray(args.denyGlobs) ? (args.denyGlobs as string[]) : undefined,
+      allowGlobs: Array.isArray(args.allowGlobs) ? (args.allowGlobs as string[]) : undefined
+    });
+  },
+  git_status: async (args, context) => {
+    const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
+    return gitStatus({ root });
+  },
+  git_diff: async (args, context) => {
+    const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
+    return gitDiff({
+      root,
+      ref: typeof args.ref === "string" ? args.ref : undefined,
+      staged: typeof args.staged === "boolean" ? args.staged : undefined,
+      maxBytes: typeof args.maxBytes === "number" ? args.maxBytes : undefined
+    });
+  },
+  search_tools: async (args, context) => {
+    const query = typeof args.query === "string" ? args.query : "";
+    if (!query) {
+      return invalidArgs("Missing query");
+    }
+    return searchToolsTool(context.workspaceDir, {
+      query,
+      limit: typeof args.limit === "number" ? args.limit : undefined
+    });
+  },
+  describe_tool: async (args, context) => {
+    const name = typeof args.name === "string" ? args.name : "";
+    if (!name) {
+      return invalidArgs("Missing name");
+    }
+    return describeTool(context.workspaceDir, { name });
+  }
+};
+
 async function runToolCall(
+  workspaceDir: string,
   projectRootAbs: string,
-  call: ToolCall,
-  mode: ChatMode
-): Promise<ToolResult> {
+  projectRootRel: string,
+  call: ToolCall
+): Promise<ToolResult<unknown>> {
   let args: Record<string, unknown> = {};
   try {
-    args = call.function.arguments ? (JSON.parse(call.function.arguments) as Record<string, unknown>) : {};
+    args = call.function.arguments
+      ? (JSON.parse(call.function.arguments) as Record<string, unknown>)
+      : {};
   } catch {
-    return { ok: false, error: "Invalid tool arguments" };
+    return invalidArgs("Invalid tool arguments");
   }
 
-  if (call.function.name === "list_files") {
-    const pathArg = typeof args.path === "string" ? args.path : ".";
-    const maxDepth = typeof args.maxDepth === "number" ? args.maxDepth : undefined;
-    const maxEntries = typeof args.maxEntries === "number" ? args.maxEntries : undefined;
-    const result = listProjectFiles(projectRootAbs, { startPath: pathArg, maxDepth, maxEntries });
-    return { ok: true, result };
+  const handler = TOOL_HANDLERS[call.function.name];
+  if (!handler) {
+    return { ok: false, error: { code: "NOT_FOUND", message: "Unknown tool" } };
   }
 
-  if (call.function.name === "read_file") {
-    const pathArg = typeof args.path === "string" ? args.path : "";
-    if (!pathArg) {
-      return { ok: false, error: "Missing path" };
-    }
-    try {
-      const result = readProjectFile(projectRootAbs, pathArg);
-      return { ok: true, result };
-    } catch (error) {
-      return { ok: false, error: (error as Error).message };
-    }
-  }
-
-  if (call.function.name === "patch_file") {
-    if (mode !== "build") {
-      return { ok: false, error: "patch_file not available in plan mode" };
-    }
-    const diff = typeof args.diff === "string" ? args.diff : "";
-    if (!diff.trim()) {
-      return { ok: false, error: "Missing diff" };
-    }
-    if (diff.trimStart().startsWith("*** Begin Patch")) {
-      return {
-        ok: false,
-        error: "Use unified diff format (git apply). apply_patch is not supported."
-      };
-    }
-    if (diffTouchesSensitivePath(diff)) {
-      return { ok: false, error: "Patch touches sensitive or excluded paths" };
-    }
-    const diffPaths = extractDiffPaths(diff);
-    if (diffPaths.some((p) => p.startsWith("..") || path.posix.isAbsolute(p))) {
-      return { ok: false, error: "Invalid patch path" };
-    }
-    try {
-      execFileSync("git", ["apply", "-"], {
-        cwd: projectRootAbs,
-        input: diff,
-        stdio: ["pipe", "pipe", "pipe"]
-      });
-      return { ok: true, result: { applied: true } };
-    } catch (error) {
-      return { ok: false, error: (error as Error).message };
-    }
-  }
-
-  return { ok: false, error: "Unknown tool" };
+  return handler(args, { workspaceDir, projectRootAbs, projectRootRel });
 }
 
 export async function runProjectChatLlm(params: {
   apiKey: string;
+  workspaceDir: string;
   projectRootAbs: string;
   projectRootRel: string;
   history: ChatMessage[];
@@ -238,7 +286,7 @@ export async function runProjectChatLlm(params: {
   toolExecutor?: ToolExecutor;
 }): Promise<string> {
   const systemPrompt = buildSystemPrompt(params.projectRootRel, params.mode);
-  const tools = params.mode === "build" ? TOOL_DEFS_BUILD : TOOL_DEFS_READ;
+  const tools = TOOL_DEFS;
   const messages: OpenAiMessage[] = [
     { role: "system", content: systemPrompt },
     ...params.history.map((msg) => ({ role: msg.role, content: msg.content }))
@@ -253,86 +301,23 @@ export async function runProjectChatLlm(params: {
     }
     if (toolCalls && toolCalls.length > 0) {
       messages.push({ role: "assistant", content: message.content ?? "", tool_calls: toolCalls });
-      const readCalls = toolCalls.filter((call) => call.function.name === "read_file");
-      const otherCalls = toolCalls.filter((call) => call.function.name !== "read_file");
 
-      const executeTool = async (call: ToolCall): Promise<ToolResult> => {
+      const executeTool = async (call: ToolCall): Promise<ToolResult<unknown>> => {
         if (params.toolExecutor) {
           const handled = await params.toolExecutor(call, params.mode);
           if (handled) {
             return handled;
           }
         }
-        return runToolCall(params.projectRootAbs, call, params.mode);
+        return runToolCall(
+          params.workspaceDir,
+          params.projectRootAbs,
+          params.projectRootRel,
+          call
+        );
       };
 
-      if (readCalls.length > 1) {
-        let toolMessageId: number | null = null;
-        if (params.onToolStart) {
-          const createdAt = new Date().toISOString();
-          const maybeId = await params.onToolStart({
-            toolName: "read_file",
-            toolMeta: `used on ${readCalls.length} files`,
-            createdAt
-          });
-          toolMessageId = typeof maybeId === "number" ? maybeId : null;
-        }
-
-        let failures = 0;
-        for (const call of readCalls) {
-          const result = await executeTool(call);
-          if (!result.ok) {
-            failures += 1;
-          }
-          messages.push({
-            role: "tool",
-            tool_call_id: call.id,
-            content: JSON.stringify(result)
-          });
-        }
-
-        if (params.onToolEnd && toolMessageId) {
-          const summary =
-            failures > 0
-              ? `used on ${readCalls.length} files (${failures} failed)`
-              : `used on ${readCalls.length} files`;
-          await params.onToolEnd({
-            messageId: toolMessageId,
-            status: failures > 0 ? "error" : "done",
-            summary
-          });
-        }
-      } else {
-        for (const call of readCalls) {
-          const toolMeta = buildToolMeta(call);
-          let toolMessageId: number | null = null;
-          if (params.onToolStart) {
-            const createdAt = new Date().toISOString();
-            const maybeId = await params.onToolStart({
-              toolName: call.function.name,
-              toolMeta,
-              createdAt
-            });
-            toolMessageId = typeof maybeId === "number" ? maybeId : null;
-          }
-
-          const result = await executeTool(call);
-          if (params.onToolEnd && toolMessageId) {
-            await params.onToolEnd({
-              messageId: toolMessageId,
-              status: result.ok ? "done" : "error",
-              summary: result.ok ? undefined : result.error
-            });
-          }
-          messages.push({
-            role: "tool",
-            tool_call_id: call.id,
-            content: JSON.stringify(result)
-          });
-        }
-      }
-
-      for (const call of otherCalls) {
+      for (const call of toolCalls) {
         const toolMeta = buildToolMeta(call);
         let toolMessageId: number | null = null;
         if (params.onToolStart) {
@@ -350,7 +335,7 @@ export async function runProjectChatLlm(params: {
           await params.onToolEnd({
             messageId: toolMessageId,
             status: result.ok ? "done" : "error",
-            summary: result.ok ? undefined : result.error
+            summary: result.ok ? undefined : result.error.message
           });
         }
         messages.push({
@@ -374,36 +359,32 @@ export async function runProjectChatLlm(params: {
 function buildToolMeta(call: ToolCall): string {
   let args: Record<string, unknown> = {};
   try {
-    args = call.function.arguments ? (JSON.parse(call.function.arguments) as Record<string, unknown>) : {};
+    args = call.function.arguments
+      ? (JSON.parse(call.function.arguments) as Record<string, unknown>)
+      : {};
   } catch {
     return call.function.name;
   }
-  if (call.function.name === "list_files") {
-    const pathArg = typeof args.path === "string" ? args.path : ".";
-    return isSensitivePath(pathArg) ? "path=[blocked]" : `path=${pathArg}`;
-  }
-  if (call.function.name === "read_file") {
+
+  if (call.function.name === "read_file" || call.function.name === "stat") {
     const pathArg = typeof args.path === "string" ? args.path : "";
-    if (!pathArg) {
-      return "path=?";
-    }
-    return isSensitivePath(pathArg) ? "path=[blocked]" : `path=${pathArg}`;
+    return pathArg ? `path=${pathArg}` : "path=?";
   }
-  if (call.function.name === "patch_file") {
-    const diff = typeof args.diff === "string" ? args.diff : "";
-    if (!diff.trim()) {
-      return "patch";
-    }
-    if (diffTouchesSensitivePath(diff)) {
-      return "files=[blocked]";
-    }
-    const paths = extractDiffPaths(diff);
-    if (paths.length === 0) {
-      return "files=unknown";
-    }
-    const preview = paths.slice(0, 3).join(", ");
-    const extra = paths.length > 3 ? ` +${paths.length - 3}` : "";
-    return `files=${preview}${extra}`;
+  if (call.function.name === "read_files") {
+    const paths = Array.isArray(args.paths) ? args.paths.length : 0;
+    return paths > 0 ? `paths=${paths}` : "paths=?";
+  }
+  if (call.function.name === "list_files") {
+    const root = typeof args.root === "string" ? args.root : "";
+    return root ? `root=${root}` : "root=?";
+  }
+  if (call.function.name === "grep") {
+    const query = typeof args.query === "string" ? args.query : "";
+    return query ? `query=${query}` : "query=?";
+  }
+  if (call.function.name === "search_tools") {
+    const query = typeof args.query === "string" ? args.query : "";
+    return query ? `query=${query}` : "query=?";
   }
   return call.function.name;
 }

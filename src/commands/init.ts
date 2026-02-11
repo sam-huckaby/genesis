@@ -5,7 +5,7 @@ import open from "open";
 import { copyWorkspaceTemplate } from "../lib/copy.js";
 import { installWorkspaceDeps } from "../lib/install.js";
 import { startSeedServer } from "../lib/spawn.js";
-import { validateWorkspaceName } from "../lib/validate.js";
+import { validateRipgrep, validateWorkspaceName } from "../lib/validate.js";
 
 type InitOptions = {
   skipInstall?: boolean;
@@ -13,6 +13,7 @@ type InitOptions = {
 
 export async function initCommand(workspaceName: string, options: InitOptions) {
   validateWorkspaceName(workspaceName);
+  validateRipgrep();
 
   const targetDir = path.resolve(process.cwd(), workspaceName);
 

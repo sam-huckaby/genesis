@@ -1,10 +1,22 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type Database from "better-sqlite3";
 import path from "node:path";
-import fs from "node:fs";
-import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { recordEvent } from "../storage/events.js";
+import {
+  buildDiffFromFiles,
+  cleanWorkingTree,
+  createChangesetProposal,
+  createStashFromDiff,
+  ensureGitRepo,
+  getGitStatus,
+  getStashDiff,
+  getWorkingDiff,
+  parseUnifiedDiff,
+  runGit,
+  updateChangesetFiles,
+  type DiffFile
+} from "../kernel/changesets.js";
 import type {
   ChangesetDetail,
   ChangesetProposalRequest,
@@ -20,94 +32,6 @@ type RouteContext = {
   db: Database.Database;
 };
 
-type DiffFile = { path: string; diff: string };
-
-function ensureGitRepo(workspaceDir: string) {
-  const gitDir = path.join(workspaceDir, ".git");
-  if (!fs.existsSync(gitDir)) {
-    throw new Error("Git repository not found in workspace");
-  }
-}
-
-function runGit(workspaceDir: string, args: string[]): string {
-  return execFileSync("git", args, { cwd: workspaceDir, encoding: "utf8" }).trim();
-}
-
-function getGitStatus(workspaceDir: string): string {
-  return runGit(workspaceDir, ["status", "--porcelain"]);
-}
-
-function getWorkingDiff(workspaceDir: string): string {
-  return runGit(workspaceDir, ["diff"]);
-}
-
-function getStashDiff(workspaceDir: string, stashRef: string): string {
-  return runGit(workspaceDir, ["stash", "show", "-p", stashRef]);
-}
-
-function parseUnifiedDiff(diff: string): DiffFile[] {
-  const blocks = diff.split(/^diff --git /m).filter((part) => part.trim().length > 0);
-  return blocks.map((block) => {
-    const lines = block.split("\n");
-    const header = lines[0] ?? "";
-    const match = header.match(/a\/(.*?) b\//);
-    const filePath = match?.[1] ?? "unknown";
-    const content = `diff --git ${block}`;
-    return { path: filePath, diff: content };
-  });
-}
-
-function buildDiffFromFiles(files: DiffFile[]): string {
-  return files.map((file) => file.diff).join("\n");
-}
-
-function updateChangesetFiles(db: Database.Database, changesetId: number, files: DiffFile[]) {
-  const deleteStmt = db.prepare("DELETE FROM changeset_files WHERE changeset_id = ?");
-  deleteStmt.run(changesetId);
-  const insertStmt = db.prepare(
-    "INSERT INTO changeset_files (changeset_id, path, diff_text) VALUES (?, ?, ?)"
-  );
-  files.forEach((file) => insertStmt.run(changesetId, file.path, file.diff));
-}
-
-function writeTempPatch(workspaceDir: string, diff: string): string {
-  const dir = path.join(workspaceDir, "state", "patches");
-  fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, `changeset-${Date.now()}.patch`);
-  fs.writeFileSync(filePath, diff, "utf8");
-  return filePath;
-}
-
-function getLatestStashRef(workspaceDir: string): string {
-  const output = runGit(workspaceDir, ["stash", "list", "-n", "1", "--pretty=format:%gd"]);
-  return output.split("\n")[0]?.trim() ?? "";
-}
-
-function createStashFromDiff(workspaceDir: string, diff: string, message: string): string {
-  const patchPath = writeTempPatch(workspaceDir, diff);
-  try {
-    execFileSync("git", ["apply", "--check", patchPath], {
-      cwd: workspaceDir,
-      stdio: "pipe"
-    });
-    execFileSync("git", ["apply", patchPath], { cwd: workspaceDir, stdio: "pipe" });
-    execFileSync("git", ["stash", "push", "-u", "-m", message], {
-      cwd: workspaceDir,
-      stdio: "pipe"
-    });
-    const stashRef = getLatestStashRef(workspaceDir);
-    cleanWorkingTree(workspaceDir);
-    return stashRef;
-  } catch (error) {
-    cleanWorkingTree(workspaceDir);
-    throw error;
-  }
-}
-
-function cleanWorkingTree(workspaceDir: string) {
-  execFileSync("git", ["reset", "--hard"], { cwd: workspaceDir, stdio: "pipe" });
-  execFileSync("git", ["clean", "-fd"], { cwd: workspaceDir, stdio: "pipe" });
-}
 
 export function registerChangesetRoutes(
   server: FastifyInstance,
@@ -122,61 +46,31 @@ export function registerChangesetRoutes(
       }
 
       try {
-        ensureGitRepo(context.workspaceDir);
-      } catch (error) {
-        return reply.status(400).send({ error: "Git repository required" });
-      }
-
-      const project = context.db
-        .prepare("SELECT id FROM projects WHERE name = ?")
-        .get(body.projectName) as { id: number } | undefined;
-
-      if (!project) {
-        return reply.status(404).send({ error: "Project not found" });
-      }
-
-      const baseRevision = runGit(context.workspaceDir, ["rev-parse", "HEAD"]);
-      const now = new Date().toISOString();
-      const stmt = context.db.prepare(
-        "INSERT INTO changesets (project_id, status, summary, base_revision, created_at) VALUES (?, ?, ?, ?, ?)"
-      );
-      const info = stmt.run(project.id, "pending", body.summary, baseRevision, now);
-      const changesetId = Number(info.lastInsertRowid);
-
-      const files = parseUnifiedDiff(body.diff);
-      const fileStmt = context.db.prepare(
-        "INSERT INTO changeset_files (changeset_id, path, diff_text) VALUES (?, ?, ?)"
-      );
-      files.forEach((file) => fileStmt.run(changesetId, file.path, file.diff));
-
-      const fullDiff = files.map((file) => file.diff).join("\n");
-      const patchPath = writeTempPatch(context.workspaceDir, fullDiff);
-
-      try {
-        execFileSync("git", ["apply", "--check", patchPath], {
-          cwd: context.workspaceDir,
-          stdio: "pipe"
+        const result = createChangesetProposal({
+          workspaceDir: context.workspaceDir,
+          db: context.db,
+          projectName: body.projectName,
+          summary: body.summary,
+          diff: body.diff
         });
-      } catch {
-        return reply.status(409).send({ error: "Patch conflict" });
+        const response: ChangesetProposalResponse = { changesetId: result.changesetId };
+        return response;
+      } catch (error) {
+        const message = (error as Error).message;
+        if (message === "Project not found") {
+          return reply.status(404).send({ error: "Project not found" });
+        }
+        if (message === "Git repository not found in workspace") {
+          return reply.status(400).send({ error: "Git repository required" });
+        }
+        if (message === "Diff touches sensitive paths") {
+          return reply.status(400).send({ error: "Diff touches sensitive paths" });
+        }
+        if (message === "Patch conflict") {
+          return reply.status(409).send({ error: "Patch conflict" });
+        }
+        throw error;
       }
-
-      execFileSync("git", ["apply", patchPath], { cwd: context.workspaceDir, stdio: "pipe" });
-      execFileSync("git", ["stash", "push", "-u", "-m", `seed: changeset ${changesetId} - ${body.summary}`], {
-        cwd: context.workspaceDir,
-        stdio: "pipe"
-      });
-      const stashRef = getLatestStashRef(context.workspaceDir);
-      cleanWorkingTree(context.workspaceDir);
-
-      context.db
-        .prepare("UPDATE changesets SET stash_ref = ? WHERE id = ?")
-        .run(stashRef, changesetId);
-
-      recordEvent(context.db, "changeset.proposed", { changesetId, stashRef }, project.id);
-
-      const response: ChangesetProposalResponse = { changesetId };
-      return response;
     }
   );
 

@@ -27,6 +27,19 @@ Seed is designed to:
 
 Seed uses bun for installs and Next.js scaffolding.
 
+Ripgrep (rg) is required: https://github.com/BurntSushi/ripgrep
+
+## Tool test suite
+
+The seed kernel includes a tool test suite to validate filesystem, git, and tool registry behavior.
+
+Run from `template/workspace/seed/server`:
+
+```bash
+  bun install
+  node --test --import tsx
+```
+
 Install dependencies and run the CLI in dev mode:
 
 ```bash

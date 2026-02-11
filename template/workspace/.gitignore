@@ -1,6 +1,7 @@
 state/
 projects/**/.git/
 seed/server/node_modules/
+seed/server/bun.lockb
 seed/ui/web/node_modules/
 seed/shared/node_modules/
 seed/server/dist/
