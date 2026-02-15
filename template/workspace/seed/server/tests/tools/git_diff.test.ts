@@ -13,7 +13,7 @@ test("git_diff returns staged diff", async () => {
     const diff = await gitDiff({ root });
     assert.equal(diff.ok, true);
     if (diff.ok) {
-      assert.ok(diff.result.diff.includes("two"));
+      assert.ok(diff.diff.includes("two"));
     }
   } finally {
     await removeDir(root);

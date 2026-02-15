@@ -24,11 +24,11 @@ test("integration: list_files -> grep -> read_files", async () => {
       return;
     }
 
-    const paths = listed.result.entries.map((entry) => entry.path);
+    const paths = listed.entries.map((entry) => entry.path);
     const read = await readFiles({ root, paths });
     assert.equal(read.ok, true);
     if (read.ok) {
-      assert.equal(read.result.files.length, paths.length);
+      assert.equal(read.files.length, paths.length);
     }
   } finally {
     await removeDir(root);

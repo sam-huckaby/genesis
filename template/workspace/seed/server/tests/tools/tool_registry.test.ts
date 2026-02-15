@@ -27,14 +27,14 @@ test("tools DB is seeded and searchable", async () => {
   const search = await searchToolsTool(workspaceDir, { query: "read file" });
   assert.equal(search.ok, true);
   if (search.ok) {
-    assert.ok(search.result.tools.length > 0);
+    assert.ok(search.tools.length > 0);
   }
 
   const describe = await describeTool(workspaceDir, { name: "read_file" });
   assert.equal(describe.ok, true);
   if (describe.ok) {
-    assert.equal(describe.result.name, "read_file");
-    assert.ok(describe.result.argsSchema);
-    assert.ok(describe.result.returnsSchema);
+    assert.equal(describe.name, "read_file");
+    assert.ok(describe.argsSchema);
+    assert.ok(describe.returnsSchema);
   }
 });

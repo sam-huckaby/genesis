@@ -31,15 +31,26 @@ export const spec: ToolSpec = {
   returnsSchema: {
     type: "object",
     properties: {
+      ok: { type: "boolean" },
       path: { type: "string" },
       type: { type: "string", enum: ["file", "dir", "symlink", "other"] },
       size: { type: "number" },
-      mtimeMs: { type: "number" }
+      mtimeMs: { type: "number" },
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+          hint: { type: "string" }
+        },
+        required: ["code", "message"],
+        additionalProperties: false
+      }
     },
-    required: ["path", "type", "size", "mtimeMs"],
+    required: ["ok"],
     additionalProperties: false
   },
-  examples: [{ input: { root: "projects/demo", path: "package.json" }, output: { ok: true, result: { path: "package.json", type: "file", size: 0, mtimeMs: 0 } } }],
+  examples: [{ input: { root: "projects/demo", path: "package.json" }, output: { ok: true, path: "package.json", type: "file", size: 0, mtimeMs: 0 } }],
   tags: ["fs", "stat"],
   filePath: "seed/server/src/kernel/tools/stat.ts"
 };
@@ -60,7 +71,10 @@ export async function statPath(args: StatArgs): Promise<ToolResult<StatResult>> 
 
     return {
       ok: true,
-      result: { path: args.path, type, size: lst.size, mtimeMs: lst.mtimeMs }
+      path: args.path,
+      type,
+      size: lst.size,
+      mtimeMs: lst.mtimeMs
     };
   } catch (error) {
     const err = error as NodeJS.ErrnoException;

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 import { ensureParentDirInsideRoot, resolveWithinRoot } from "./path_safety.js";
 import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
@@ -17,6 +18,7 @@ export type ReadFileResult = {
   content: string;
   truncated: boolean;
   totalBytes: number;
+  sha256: string;
 };
 
 export const spec: ToolSpec = {
@@ -43,19 +45,31 @@ export const spec: ToolSpec = {
   returnsSchema: {
     type: "object",
     properties: {
+      ok: { type: "boolean" },
       path: { type: "string" },
       encoding: { type: "string" },
       content: { type: "string" },
       truncated: { type: "boolean" },
-      totalBytes: { type: "number" }
+      totalBytes: { type: "number" },
+      sha256: { type: "string" },
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+          hint: { type: "string" }
+        },
+        required: ["code", "message"],
+        additionalProperties: false
+      }
     },
-    required: ["path", "encoding", "content", "truncated", "totalBytes"],
+    required: ["ok"],
     additionalProperties: false
   },
   examples: [
     {
       input: { root: "projects/demo", path: "src/index.ts" },
-      output: { ok: true, result: { path: "src/index.ts", encoding: "utf-8", content: "", truncated: false, totalBytes: 0 } }
+      output: { ok: true, path: "src/index.ts", encoding: "utf-8", content: "", truncated: false, totalBytes: 0, sha256: "" }
     }
   ],
   tags: ["fs", "read"],
@@ -83,6 +97,7 @@ export async function readFileTool(args: ReadFileArgs): Promise<ToolResult<ReadF
       };
     }
 
+    const fullText = buf.toString("utf-8");
     let content = sliced.toString("utf-8");
 
     if (args.range?.startLine || args.range?.endLine) {
@@ -92,15 +107,16 @@ export async function readFileTool(args: ReadFileArgs): Promise<ToolResult<ReadF
       content = lines.slice(start - 1, end).join("\n");
     }
 
+    const sha256 = crypto.createHash("sha256").update(fullText.replace(/\r\n/g, "\n"), "utf8").digest("hex");
+
     return {
       ok: true,
-      result: {
-        path: args.path,
-        encoding: "utf-8",
-        content,
-        truncated,
-        totalBytes
-      }
+      path: args.path,
+      encoding: "utf-8",
+      content,
+      truncated,
+      totalBytes,
+      sha256
     };
   } catch (error) {
     const err = error as NodeJS.ErrnoException;

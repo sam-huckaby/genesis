@@ -110,16 +110,16 @@ export function registerDiscoveryRoutes(
         )
         .all(body.discoveryId) as { role: "user" | "assistant"; content: string }[];
 
-      const llmResult = await runDiscoveryLlm(apiKey, transcript);
-      const llmResponse = normalizeLlmResponse(llmResult.parsed);
-
       const logDir = path.join(context.workspaceDir, "state", "logs");
       fs.mkdirSync(logDir, { recursive: true });
       const logPath = path.join(logDir, "llm-debug.log");
-      fs.appendFileSync(
-        logPath,
-        `[${new Date().toISOString()}] ${llmResult.raw}\n\n`
-      );
+
+      const llmResult = await runDiscoveryLlm(apiKey, transcript, {
+        logRaw: (raw) => {
+          fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${raw}\n\n`);
+        }
+      });
+      const llmResponse = normalizeLlmResponse(llmResult.parsed);
 
       const assistantStmt = context.db.prepare(
         "INSERT INTO discovery_messages (discovery_id, role, content, created_at) VALUES (?, ?, ?, ?)"

@@ -28,21 +28,32 @@ export const spec: ToolSpec = {
   returnsSchema: {
     type: "object",
     properties: {
+      ok: { type: "boolean" },
       name: { type: "string" },
       description: { type: "string" },
       argsSchema: { type: "object" },
       returnsSchema: { type: "object" },
       examples: { type: "array" },
       tags: { type: "array" },
-      filePath: { type: "string" }
+      filePath: { type: "string" },
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+          hint: { type: "string" }
+        },
+        required: ["code", "message"],
+        additionalProperties: false
+      }
     },
-    required: ["name", "description", "argsSchema", "returnsSchema"],
+    required: ["ok"],
     additionalProperties: false
   },
   examples: [
     {
       input: { name: "read_file" },
-      output: { ok: true, result: { name: "read_file", description: "", argsSchema: {}, returnsSchema: {} } }
+      output: { ok: true, name: "read_file", description: "", argsSchema: {}, returnsSchema: {} }
     }
   ],
   tags: ["tools", "describe"],
@@ -54,21 +65,20 @@ export async function describeTool(
   args: DescribeToolArgs
 ): Promise<ToolResult<DescribeToolResult>> {
   try {
-    const tool = getToolContractByName(workspaceDir, args.name);
+    const normalizedName = args.name.replace(/^functions\./, "");
+    const tool = getToolContractByName(workspaceDir, normalizedName);
     if (!tool) {
       return { ok: false, error: { code: "NOT_FOUND", message: `Tool not found: ${args.name}` } };
     }
     return {
       ok: true,
-      result: {
-        name: tool.name,
-        description: tool.description,
-        argsSchema: tool.argsSchema,
-        returnsSchema: tool.returnsSchema,
-        examples: tool.examples,
-        tags: tool.tags,
-        filePath: tool.filePath
-      }
+      name: tool.name,
+      description: tool.description,
+      argsSchema: tool.argsSchema,
+      returnsSchema: tool.returnsSchema,
+      examples: tool.examples,
+      tags: tool.tags,
+      filePath: tool.filePath
     };
   } catch (error) {
     return {

@@ -6,10 +6,18 @@ import type Database from "better-sqlite3";
 import { getAdapterByType } from "../adapters/registry.js";
 import { runSpec } from "../kernel/runner.js";
 import { applyPatchSet } from "../kernel/patch.js";
+import { runBuildLoop } from "../kernel/build_loop.js";
 import { recordEvent } from "../storage/events.js";
 import type {
   CreateProjectRequest,
   CreateProjectResponse,
+  ProjectBuildLoopRequest,
+  ProjectBuildLoopResponse,
+  ProjectBuildRunResponse,
+  ProjectBuildLoopDetailResponse,
+  ProjectBuildLoopListResponse,
+  ProjectDeployRequest,
+  ProjectDeployResponse,
   ProjectBuildPromptRequest,
   ProjectBuildPromptResponse,
   ProjectBrief,
@@ -28,6 +36,30 @@ function isValidProjectName(name: string): boolean {
 function getGitStatus(dir: string): string {
   return execFileSync("git", ["status", "--porcelain"], { cwd: dir, encoding: "utf8" }).trim();
 }
+
+type ProjectRow = {
+  id: number;
+  root_path_rel: string;
+  type: string;
+};
+
+function getProjectRow(db: Database.Database, name: string): ProjectRow | undefined {
+  return db
+    .prepare("SELECT id, root_path_rel, type FROM projects WHERE name = ?")
+    .get(name) as ProjectRow | undefined;
+}
+
+function clampNumber(input: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, input));
+}
+
+function readSetting(db: Database.Database, key: string): string | null {
+  const row = db
+    .prepare("SELECT value FROM settings WHERE key = ?")
+    .get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
 
 export function registerProjectRoutes(
   server: FastifyInstance,
@@ -317,6 +349,383 @@ export function registerProjectRoutes(
 
       context.db.prepare("DELETE FROM project_build_prompts WHERE project_id = ?").run(project.id);
       return { ok: true };
+    }
+  );
+
+  server.post(
+    "/api/projects/:name/build",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const name = (request.params as { name?: string }).name;
+      if (!name) {
+        return reply.status(400).send({ error: "Missing project name" });
+      }
+
+      const project = getProjectRow(context.db, name);
+      if (!project) {
+        return reply.status(404).send({ error: "Project not found" });
+      }
+
+      const adapter = getAdapterByType(project.type as any);
+      if (!adapter) {
+        const response: ProjectBuildRunResponse = {
+          ok: false,
+          exitCode: 1,
+          stdout: "",
+          stderr: "",
+          message: "Unsupported project type"
+        };
+        return response;
+      }
+
+      const command = adapter.commands(project.root_path_rel).build;
+      if (!command) {
+        const response: ProjectBuildRunResponse = {
+          ok: false,
+          exitCode: 1,
+          stdout: "",
+          stderr: "",
+          message: "No build command configured for this project"
+        };
+        return response;
+      }
+
+      recordEvent(context.db, "project.build.started", { name }, project.id);
+      const result = await runSpec(context.workspaceDir, command);
+      recordEvent(
+        context.db,
+        "project.build.finished",
+        { name, exitCode: result.exitCode },
+        project.id
+      );
+
+      const response: ProjectBuildRunResponse = {
+        ok: result.exitCode === 0,
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr
+      };
+      return response;
+    }
+  );
+
+  server.post(
+    "/api/projects/:name/test",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const name = (request.params as { name?: string }).name;
+      if (!name) {
+        return reply.status(400).send({ error: "Missing project name" });
+      }
+
+      const project = getProjectRow(context.db, name);
+      if (!project) {
+        return reply.status(404).send({ error: "Project not found" });
+      }
+
+      const adapter = getAdapterByType(project.type as any);
+      if (!adapter) {
+        const response: ProjectBuildRunResponse = {
+          ok: false,
+          exitCode: 1,
+          stdout: "",
+          stderr: "",
+          message: "Unsupported project type"
+        };
+        return response;
+      }
+
+      const command = adapter.commands(project.root_path_rel).test;
+      if (!command) {
+        const response: ProjectBuildRunResponse = {
+          ok: false,
+          exitCode: 1,
+          stdout: "",
+          stderr: "",
+          message: "No test command configured for this project"
+        };
+        return response;
+      }
+
+      recordEvent(context.db, "project.test.started", { name }, project.id);
+      const result = await runSpec(context.workspaceDir, command);
+      recordEvent(
+        context.db,
+        "project.test.finished",
+        { name, exitCode: result.exitCode },
+        project.id
+      );
+
+      const response: ProjectBuildRunResponse = {
+        ok: result.exitCode === 0,
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr
+      };
+      return response;
+    }
+  );
+
+  server.post(
+    "/api/projects/:name/deploy",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const name = (request.params as { name?: string }).name;
+      const body = request.body as ProjectDeployRequest;
+      if (!name) {
+        return reply.status(400).send({ error: "Missing project name" });
+      }
+
+      const targetId = body?.targetId?.trim();
+      if (!targetId) {
+        const response: ProjectDeployResponse = {
+          ok: false,
+          exitCode: 1,
+          stdout: "",
+          stderr: "",
+          message: "Missing targetId"
+        };
+        return response;
+      }
+
+      const project = getProjectRow(context.db, name);
+      if (!project) {
+        return reply.status(404).send({ error: "Project not found" });
+      }
+
+      const adapter = getAdapterByType(project.type as any);
+      if (!adapter) {
+        const response: ProjectDeployResponse = {
+          ok: false,
+          exitCode: 1,
+          stdout: "",
+          stderr: "",
+          message: "Unsupported project type"
+        };
+        return response;
+      }
+
+      const targets = adapter.commands(project.root_path_rel).deployTargets ?? [];
+      const target = targets.find((entry) => entry.id === targetId);
+      if (!target) {
+        const response: ProjectDeployResponse = {
+          ok: false,
+          exitCode: 1,
+          stdout: "",
+          stderr: "",
+          message: "Unknown deploy target"
+        };
+        return response;
+      }
+
+      recordEvent(context.db, "project.deploy.started", { name, targetId }, project.id);
+      const result = await runSpec(context.workspaceDir, target.spec);
+      recordEvent(
+        context.db,
+        "project.deploy.finished",
+        { name, targetId, exitCode: result.exitCode },
+        project.id
+      );
+
+      const response: ProjectDeployResponse = {
+        ok: result.exitCode === 0,
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr
+      };
+      return response;
+    }
+  );
+
+  server.post(
+    "/api/projects/:name/build-loop",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const name = (request.params as { name?: string }).name;
+      const body = request.body as ProjectBuildLoopRequest;
+      if (!name) {
+        return reply.status(400).send({ error: "Missing project name" });
+      }
+
+      const project = getProjectRow(context.db, name);
+      if (!project) {
+        return reply.status(404).send({ error: "Project not found" });
+      }
+
+      const adapter = getAdapterByType(project.type as any);
+      if (!adapter) {
+        const response: ProjectBuildLoopResponse = {
+          ok: false,
+          loopId: 0,
+          lastIteration: null,
+          message: "Unsupported project type"
+        };
+        return response;
+      }
+
+      const buildCommand = adapter.commands(project.root_path_rel).build;
+      if (!buildCommand) {
+        const response: ProjectBuildLoopResponse = {
+          ok: false,
+          loopId: 0,
+          lastIteration: null,
+          message: "No build command configured for this project"
+        };
+        return response;
+      }
+
+      const secretsPath = path.join(context.workspaceDir, "state", "secrets", "openai.json");
+      if (!fs.existsSync(secretsPath)) {
+        return reply.status(400).send({ ok: false, error: "Missing OpenAI API key" });
+      }
+      const apiKey = JSON.parse(fs.readFileSync(secretsPath, "utf8")).apiKey as string;
+
+      const defaultIterations = 20;
+      const requestedIterations = typeof body?.maxIterations === "number"
+        ? body.maxIterations
+        : defaultIterations;
+      const maxIterations = clampNumber(Math.floor(requestedIterations), 1, 50);
+      const modelSetting = readSetting(context.db, "build_loop_model") ?? "gpt-5.2";
+      const modelOverride = typeof body?.modelOverride === "string" && body.modelOverride.trim().length > 0
+        ? body.modelOverride.trim()
+        : undefined;
+      const model = modelOverride ?? modelSetting;
+      const promptRow = context.db
+        .prepare("SELECT prompt_text FROM project_build_prompts WHERE project_id = ?")
+        .get(project.id) as { prompt_text: string } | undefined;
+      const projectPrompt = promptRow?.prompt_text?.trim() ?? "";
+
+      const maxToolIterationsRow = readSetting(context.db, "project_chat_max_iterations");
+      const parsedToolMax = Number.parseInt(maxToolIterationsRow ?? "", 10);
+      const toolMaxIterations = Number.isFinite(parsedToolMax) && parsedToolMax > 0
+        ? parsedToolMax
+        : 100;
+
+      const response = await runBuildLoop({
+        db: context.db,
+        workspaceDir: context.workspaceDir,
+        apiKey,
+        project: {
+          id: project.id,
+          name,
+          rootPathRel: project.root_path_rel
+        },
+        buildCommand,
+        maxIterations,
+        model,
+        toolMaxIterations,
+        projectPrompt
+      });
+      return response;
+    }
+  );
+
+  server.get(
+    "/api/projects/:name/build-loops",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const name = (request.params as { name?: string }).name;
+      if (!name) {
+        return reply.status(400).send({ error: "Missing project name" });
+      }
+
+      const project = getProjectRow(context.db, name);
+      if (!project) {
+        return reply.status(404).send({ error: "Project not found" });
+      }
+
+      const rows = context.db
+        .prepare(
+          "SELECT id, status, max_iterations, stop_reason, model, created_at, updated_at FROM project_build_loops WHERE project_id = ? ORDER BY created_at DESC"
+        )
+        .all(project.id) as {
+        id: number;
+        status: string;
+        max_iterations: number;
+        stop_reason: string | null;
+        model: string | null;
+        created_at: string;
+        updated_at: string;
+      }[];
+
+      const response: ProjectBuildLoopListResponse = {
+        loops: rows.map((row) => ({
+          id: row.id,
+          status: row.status,
+          maxIterations: row.max_iterations,
+          stopReason: row.stop_reason,
+          model: row.model,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at
+        }))
+      };
+      return response;
+    }
+  );
+
+  server.get(
+    "/api/projects/:name/build-loops/:loopId",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const name = (request.params as { name?: string }).name;
+      const loopId = Number((request.params as { loopId?: string }).loopId);
+      if (!name || !Number.isFinite(loopId)) {
+        return reply.status(400).send({ error: "Missing project name or loopId" });
+      }
+
+      const project = getProjectRow(context.db, name);
+      if (!project) {
+        return reply.status(404).send({ error: "Project not found" });
+      }
+
+      const loopRow = context.db
+        .prepare(
+          "SELECT id, status, max_iterations, stop_reason, model, created_at, updated_at FROM project_build_loops WHERE id = ? AND project_id = ?"
+        )
+        .get(loopId, project.id) as {
+        id: number;
+        status: string;
+        max_iterations: number;
+        stop_reason: string | null;
+        model: string | null;
+        created_at: string;
+        updated_at: string;
+      } | undefined;
+
+      if (!loopRow) {
+        const response: ProjectBuildLoopDetailResponse = { loop: null };
+        return response;
+      }
+
+      const iterations = context.db
+        .prepare(
+          "SELECT id, iteration, exit_code, stdout, stderr, assistant_summary, created_at FROM project_build_iterations WHERE loop_id = ? ORDER BY iteration"
+        )
+        .all(loopId) as {
+        id: number;
+        iteration: number;
+        exit_code: number;
+        stdout: string;
+        stderr: string;
+        assistant_summary: string | null;
+        created_at: string;
+      }[];
+
+      const response: ProjectBuildLoopDetailResponse = {
+        loop: {
+          id: loopRow.id,
+          status: loopRow.status,
+          maxIterations: loopRow.max_iterations,
+          stopReason: loopRow.stop_reason,
+          model: loopRow.model,
+          createdAt: loopRow.created_at,
+          updatedAt: loopRow.updated_at,
+          iterations: iterations.map((row) => ({
+            id: row.id,
+            iteration: row.iteration,
+            exitCode: row.exit_code,
+            stdout: row.stdout,
+            stderr: row.stderr,
+            assistantSummary: row.assistant_summary,
+            createdAt: row.created_at
+          }))
+        }
+      };
+      return response;
     }
   );
 }

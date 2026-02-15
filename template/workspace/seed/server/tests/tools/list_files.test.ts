@@ -12,7 +12,7 @@ test("list_files lists files and respects maxDepth", async () => {
     const result = await listFiles({ root, maxDepth: 1, maxResults: 50 });
     assert.equal(result.ok, true);
     if (result.ok) {
-      const paths = result.result.entries.map((entry) => entry.path);
+      const paths = result.entries.map((entry) => entry.path);
       assert.ok(paths.includes("a/file.txt"));
       assert.ok(!paths.includes("a/b/deep.txt"));
     }
@@ -29,7 +29,7 @@ test("list_files includes dirs when includeDirs=true", async () => {
     const result = await listFiles({ root, includeDirs: true, maxResults: 50 });
     assert.equal(result.ok, true);
     if (result.ok) {
-      const dirEntry = result.result.entries.find((entry) => entry.path === "dir");
+      const dirEntry = result.entries.find((entry) => entry.path === "dir");
       assert.ok(dirEntry);
       assert.equal(dirEntry?.type, "dir");
     }

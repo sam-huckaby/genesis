@@ -1,7 +1,9 @@
 type ProjectChatEvent = {
-  type: "tool_created" | "tool_updated" | "assistant_message";
+  type: "tool_created" | "tool_updated" | "assistant_message" | "user_message";
+  conversationId: number;
   message: {
     id: number;
+    conversationId?: number;
     role: "user" | "assistant";
     content: string;
     createdAt: string;

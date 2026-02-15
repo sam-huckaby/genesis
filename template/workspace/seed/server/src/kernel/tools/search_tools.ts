@@ -34,6 +34,7 @@ export const spec: ToolSpec = {
   returnsSchema: {
     type: "object",
     properties: {
+      ok: { type: "boolean" },
       tools: {
         type: "array",
         items: {
@@ -48,15 +49,25 @@ export const spec: ToolSpec = {
           required: ["name", "description", "argsSchema", "returnsSchema"],
           additionalProperties: false
         }
+      },
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+          hint: { type: "string" }
+        },
+        required: ["code", "message"],
+        additionalProperties: false
       }
     },
-    required: ["tools"],
+    required: ["ok"],
     additionalProperties: false
   },
   examples: [
     {
       input: { query: "read file" },
-      output: { ok: true, result: { tools: [] } }
+      output: { ok: true, tools: [] }
     }
   ],
   tags: ["tools", "search"],
@@ -79,7 +90,7 @@ export async function searchToolsTool(
       examples: tool.examples
     }));
 
-    return { ok: true, result: { tools } };
+    return { ok: true, tools };
   } catch (error) {
     return {
       ok: false,

@@ -45,6 +45,7 @@ export const spec: ToolSpec = {
   returnsSchema: {
     type: "object",
     properties: {
+      ok: { type: "boolean" },
       root: { type: "string" },
       entries: {
         type: "array",
@@ -58,15 +59,25 @@ export const spec: ToolSpec = {
           additionalProperties: false
         }
       },
-      truncated: { type: "boolean" }
+      truncated: { type: "boolean" },
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+          hint: { type: "string" }
+        },
+        required: ["code", "message"],
+        additionalProperties: false
+      }
     },
-    required: ["root", "entries", "truncated"],
+    required: ["ok"],
     additionalProperties: false
   },
   examples: [
     {
       input: { root: "projects/demo", globs: ["**/*.ts"], maxDepth: 6 },
-      output: { ok: true, result: { root: "/abs/projects/demo", entries: [], truncated: false } }
+      output: { ok: true, root: "/abs/projects/demo", entries: [], truncated: false }
     }
   ],
   tags: ["fs", "list"],
@@ -148,11 +159,9 @@ export async function listFiles(args: ListFilesArgs): Promise<ToolResult<ListFil
 
     return {
       ok: true,
-      result: {
-        root: rootAbs,
-        entries: mapped,
-        truncated
-      }
+      root: rootAbs,
+      entries: mapped,
+      truncated
     };
   } catch (error) {
     return {

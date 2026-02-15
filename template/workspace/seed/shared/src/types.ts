@@ -88,6 +88,62 @@ export type ProjectBuildPromptResponse = {
   createdAt?: string;
 };
 
+export type ProjectBuildRunResponse = {
+  ok: boolean;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  message?: string;
+};
+
+export type ProjectDeployRequest = {
+  targetId: string;
+};
+
+export type ProjectDeployResponse = ProjectBuildRunResponse;
+
+export type ProjectBuildLoopRequest = {
+  maxIterations?: number;
+  modelOverride?: string;
+};
+
+export type ProjectBuildLoopIteration = {
+  iteration: number;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  assistantSummary?: string | null;
+};
+
+export type ProjectBuildLoopResponse = {
+  ok: boolean;
+  loopId: number;
+  lastIteration: ProjectBuildLoopIteration | null;
+  message?: string;
+};
+
+export type ProjectBuildLoopSummary = {
+  id: number;
+  status: string;
+  maxIterations: number;
+  stopReason?: string | null;
+  model?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectBuildLoopListResponse = {
+  loops: ProjectBuildLoopSummary[];
+};
+
+export type ProjectBuildLoopDetail = ProjectBuildLoopSummary & {
+  iterations: ProjectBuildLoopIteration[];
+};
+
+export type ProjectBuildLoopDetailResponse = {
+  loop: ProjectBuildLoopDetail | null;
+};
+
 export type TaskSelectionRequest = {
   messageId: number;
   start: number;
@@ -101,6 +157,7 @@ export type TaskSelectionResponse = {
 
 export type ProjectChatMessage = {
   id: number;
+  conversationId?: number;
   role: "user" | "assistant";
   content: string;
   createdAt: string;
@@ -109,6 +166,16 @@ export type ProjectChatMessage = {
   toolName?: string | null;
   toolMeta?: string | null;
   selections?: { start: number; end: number }[];
+};
+
+export type ProjectChatConversation = {
+  id: number;
+  projectId: number;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt?: string | null;
+  lastViewedAt?: string | null;
 };
 
 export type ChangesetProposalRequest = {

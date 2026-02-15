@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { seedToolsDb } from "../kernel/tools/registry_seed.js";
+import { TOOL_SPECS } from "../kernel/tools/tool_specs.js";
 
 let cachedDb: Database.Database | null = null;
 let cachedPath: string | null = null;
@@ -53,8 +54,17 @@ function ensureSeeded(db: Database.Database) {
   const row = db
     .prepare("SELECT COUNT(*) as count FROM tools")
     .get() as { count: number } | undefined;
-  if (row && row.count > 0) {
+  const expectedCount = TOOL_SPECS.length;
+  if (!row || row.count !== expectedCount) {
+    seedToolsDb(db);
     return;
   }
-  seedToolsDb(db);
+  const existing = db
+    .prepare("SELECT name FROM tools")
+    .all() as { name: string }[];
+  const existingNames = new Set(existing.map((tool) => tool.name));
+  const missing = TOOL_SPECS.some((spec) => !existingNames.has(spec.name));
+  if (missing) {
+    seedToolsDb(db);
+  }
 }

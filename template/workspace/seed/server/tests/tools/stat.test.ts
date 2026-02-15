@@ -21,9 +21,9 @@ test("stat returns correct types", async () => {
     assert.equal(linkRes.ok, true);
 
     if (fileRes.ok && dirRes.ok && linkRes.ok) {
-      assert.equal(fileRes.result.type, "file");
-      assert.equal(dirRes.result.type, "dir");
-      assert.equal(linkRes.result.type, "symlink");
+      assert.equal(fileRes.type, "file");
+      assert.equal(dirRes.type, "dir");
+      assert.equal(linkRes.type, "symlink");
     }
   } finally {
     await removeDir(root);

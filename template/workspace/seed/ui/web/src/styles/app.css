@@ -143,7 +143,120 @@ ul {
 
 .project-chat-shell {
   display: grid;
+  grid-template-rows: auto 1fr;
   height: 100%;
+  min-height: 0;
+  gap: 12px;
+}
+
+.project-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.project-chat-project {
+  margin: 6px 0 0 0;
+  color: var(--muted);
+}
+
+.project-chat-content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.project-chat-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: 16px;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+}
+
+.project-chat-sidebar {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 14px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+.project-chat-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.project-chat-sidebar-label {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.project-chat-sidebar-subtitle {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.project-chat-list {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.project-chat-list-item {
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 10px 12px;
+  text-align: left;
+  display: grid;
+  gap: 6px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  max-height: 72px;
+  overflow: hidden;
+}
+
+.project-chat-list-item.is-active {
+  border-color: rgba(81, 207, 102, 0.4);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+}
+
+.project-chat-list-title {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-chat-list-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.project-chat-sidebar-toggle {
+  display: none;
+}
+
+.project-chat-backdrop {
+  display: none;
+}
+
+.project-chat-sidebar-flyout {
+  display: none;
 }
 
 mark {
@@ -373,6 +486,54 @@ mark {
     right: 16px;
     top: 72px;
   }
+
+  .project-chat-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .project-chat-sidebar {
+    display: none;
+  }
+
+  .project-chat-sidebar-toggle {
+    display: inline-flex;
+  }
+
+  .project-chat-backdrop {
+    position: fixed;
+    top: 72px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.35);
+    display: none;
+    z-index: 1100;
+  }
+
+  .project-chat-backdrop.is-open {
+    display: block;
+  }
+
+  .project-chat-sidebar-flyout {
+    position: fixed;
+    top: 72px;
+    left: 0;
+    bottom: 0;
+    width: min(320px, 86vw);
+    background: var(--card-bg);
+    border-right: 1px solid var(--card-border);
+    padding: 14px;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 12px;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    z-index: 1200;
+  }
+
+  .project-chat-sidebar-flyout.is-open {
+    transform: translateX(0);
+  }
 }
 
 .onboarding {
@@ -398,6 +559,65 @@ mark {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 16px;
+}
+
+.onboarding-grid.onboarding-grid-projects {
+  grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
+  grid-template-rows: auto auto;
+  align-items: start;
+  justify-items: start;
+}
+
+.onboarding-grid.onboarding-grid-projects .onboarding-item-api {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.onboarding-grid.onboarding-grid-projects .onboarding-item-discovery {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.onboarding-grid.onboarding-grid-projects .onboarding-item-projects {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+@media (max-width: 840px) {
+  .onboarding-grid.onboarding-grid-projects {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  .onboarding-grid.onboarding-grid-projects .onboarding-item-projects {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .onboarding-grid.onboarding-grid-projects .onboarding-item-discovery {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .onboarding-grid.onboarding-grid-projects .onboarding-item-api {
+    grid-column: 1;
+    grid-row: 3;
+  }
+}
+
+@media (min-width: 841px) {
+  .onboarding-grid.onboarding-grid-projects .onboarding-item {
+    max-width: 450px;
+    width: 100%;
+  }
+
+  .onboarding-centered-grid {
+    align-items: stretch;
+  }
+
+  .onboarding-centered-grid .card {
+    height: 100%;
+  }
 }
 
 .onboarding-centered-grid {

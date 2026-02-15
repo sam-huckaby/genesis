@@ -33,6 +33,7 @@ export const spec: ToolSpec = {
   returnsSchema: {
     type: "object",
     properties: {
+      ok: { type: "boolean" },
       root: { type: "string" },
       isGitRepo: { type: "boolean" },
       packageManager: { type: "string" },
@@ -48,9 +49,19 @@ export const spec: ToolSpec = {
         },
         required: ["hasSrc", "hasPackagesDir", "hasAppsDir"],
         additionalProperties: false
+      },
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+          hint: { type: "string" }
+        },
+        required: ["code", "message"],
+        additionalProperties: false
       }
     },
-    required: ["root", "isGitRepo", "frameworks", "languages", "keyFiles", "workspaceLayout"],
+    required: ["ok"],
     additionalProperties: false
   },
   examples: [
@@ -58,15 +69,13 @@ export const spec: ToolSpec = {
       input: { root: "projects/demo" },
       output: {
         ok: true,
-        result: {
-          root: "/abs/projects/demo",
-          isGitRepo: true,
-          packageManager: "npm",
-          frameworks: [],
-          languages: [],
-          keyFiles: [],
-          workspaceLayout: { hasSrc: false, hasPackagesDir: false, hasAppsDir: false }
-        }
+        root: "/abs/projects/demo",
+        isGitRepo: true,
+        packageManager: "npm",
+        frameworks: [],
+        languages: [],
+        keyFiles: [],
+        workspaceLayout: { hasSrc: false, hasPackagesDir: false, hasAppsDir: false }
       }
     }
   ],
@@ -151,15 +160,13 @@ export async function projectInfo(args: ProjectInfoArgs): Promise<ToolResult<Pro
 
     return {
       ok: true,
-      result: {
-        root: rootAbs,
-        isGitRepo: await exists(path.join(rootAbs, ".git")),
-        packageManager,
-        frameworks: Array.from(new Set(frameworks)),
-        languages: Array.from(new Set(languages)),
-        keyFiles,
-        workspaceLayout
-      }
+      root: rootAbs,
+      isGitRepo: await exists(path.join(rootAbs, ".git")),
+      packageManager,
+      frameworks: Array.from(new Set(frameworks)),
+      languages: Array.from(new Set(languages)),
+      keyFiles,
+      workspaceLayout
     };
   } catch (error) {
     return {

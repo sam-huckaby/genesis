@@ -12,8 +12,8 @@ test("grep searches using ripgrep", async () => {
     const result = await grep({ root, query: "hello" });
     assert.equal(result.ok, true);
     if (result.ok) {
-      assert.ok(result.result.matches.length >= 1);
-      assert.equal(result.result.matches[0]?.path, "a.txt");
+      assert.ok(result.matches.length >= 1);
+      assert.equal(result.matches[0]?.path, "a.txt");
     }
   } finally {
     await removeDir(root);

@@ -56,9 +56,43 @@ CREATE TABLE IF NOT EXISTS project_build_prompts (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS project_build_loops (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL,
+  max_iterations INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  stop_reason TEXT,
+  model TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_build_iterations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  loop_id INTEGER NOT NULL,
+  project_id INTEGER NOT NULL,
+  iteration INTEGER NOT NULL,
+  exit_code INTEGER NOT NULL,
+  stdout TEXT NOT NULL,
+  stderr TEXT NOT NULL,
+  assistant_summary TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_chat_conversations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  last_message_at TEXT,
+  last_viewed_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   project_id INTEGER NOT NULL,
+  conversation_id INTEGER NOT NULL,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
   kind TEXT,
@@ -106,4 +140,9 @@ CREATE TABLE IF NOT EXISTS changeset_messages (
   role TEXT NOT NULL,
   content TEXT NOT NULL,
   created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );

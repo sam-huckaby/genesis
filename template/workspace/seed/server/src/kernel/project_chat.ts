@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import fsPromises from "node:fs/promises";
 import path from "node:path";
 import { TOOL_SPECS } from "./tools/tool_specs.js";
 import { listFiles } from "./tools/list_files.js";
@@ -7,11 +8,18 @@ import { readFiles } from "./tools/read_files.js";
 import { statPath } from "./tools/stat.js";
 import { grep } from "./tools/grep.js";
 import { projectInfo } from "./tools/project_info.js";
-import { applyPatch } from "./tools/apply_patch.js";
+import { applyPatchTool } from "./tools/apply_patch_tool.js";
+import { applyUnifiedDiff } from "./tools/apply_patch.js";
+import { editFile } from "./tools/edit_file.js";
 import { gitStatus } from "./tools/git_status.js";
 import { gitDiff } from "./tools/git_diff.js";
 import { searchToolsTool } from "./tools/search_tools.js";
 import { describeTool } from "./tools/describe_tool.js";
+import { buildLoopStartTool } from "./tools/build_loop_start.js";
+import { buildLoopStopTool } from "./tools/build_loop_stop.js";
+import { getBuildLoopsTool } from "./tools/get_build_loops.js";
+import { getBuildLoopDetailTool } from "./tools/get_build_loop_detail.js";
+import { buildToolMeta } from "./project_chat_meta.js";
 import type { ToolResult } from "./tools/tool_result.js";
 
 type ChatMessage = {
@@ -64,6 +72,7 @@ type ToolContext = {
   workspaceDir: string;
   projectRootAbs: string;
   projectRootRel: string;
+  allowedRootAbs: string;
 };
 
 type ToolHandler = (
@@ -78,7 +87,10 @@ function buildSystemPrompt(projectRootRel: string, mode: ChatMode): string {
     `Mode: ${mode}. ` +
     "You may only call the available tools. " +
     "Use search_tools to discover tools and describe_tool for full schemas. " +
-    "All filesystem and git tools require a root parameter; use the project root path. " +
+    "Use edit_file for small, targeted edits (preferred). " +
+    "Use apply_patch for V4A headerless patch operations (operations array). " +
+    "Use apply_unified_diff for large, multi-file unified diffs only. " +
+    "Do not provide allowedRootAbs; the system injects it. " +
     "Do not output TypeScript code blocks for execution. " +
     "Do not access secrets, env files, keys, or build artifacts."
   );
@@ -87,7 +99,8 @@ function buildSystemPrompt(projectRootRel: string, mode: ChatMode): string {
 async function callOpenAi(
   apiKey: string,
   messages: OpenAiMessage[],
-  tools: typeof TOOL_DEFS
+  tools: typeof TOOL_DEFS,
+  model: string
 ): Promise<{ message: OpenAiMessage; toolCalls?: ToolCall[]; raw: string }> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -96,7 +109,7 @@ async function callOpenAi(
       Authorization: `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: "gpt-5.2",
+      model,
       messages,
       tools,
       temperature: 0.2
@@ -132,6 +145,10 @@ function resolveRootArg(
 
 function invalidArgs(message: string, details?: unknown): ToolResult<unknown> {
   return { ok: false, error: { code: "INVALID_ARGS", message, details } };
+}
+
+function normalizeToolName(name: string): string {
+  return name.replace(/^functions\./, "");
 }
 
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
@@ -202,20 +219,101 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
     return projectInfo({ root });
   },
-  apply_patch: async (args, context) => {
-    const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
-    const unifiedDiff = typeof args.unifiedDiff === "string" ? args.unifiedDiff : "";
-    if (!unifiedDiff) {
-      return invalidArgs("Missing unifiedDiff");
+  edit_file: async (args, context) => {
+    const filePath = typeof args.path === "string" ? args.path : "";
+    const expectedSha256 = typeof args.expectedSha256 === "string" ? args.expectedSha256 : "";
+    const mode = typeof args.mode === "string" ? args.mode : "";
+    if (!filePath || !expectedSha256 || !mode) {
+      return invalidArgs("Missing required fields for edit_file");
     }
-    return applyPatch({
-      root,
-      unifiedDiff,
-      dryRun: typeof args.dryRun === "boolean" ? args.dryRun : undefined,
-      maxFiles: typeof args.maxFiles === "number" ? args.maxFiles : undefined,
-      maxBytes: typeof args.maxBytes === "number" ? args.maxBytes : undefined,
-      denyGlobs: Array.isArray(args.denyGlobs) ? (args.denyGlobs as string[]) : undefined,
-      allowGlobs: Array.isArray(args.allowGlobs) ? (args.allowGlobs as string[]) : undefined
+
+    if (mode === "anchor_replace") {
+      const before = args.before as unknown;
+      const after = args.after as unknown;
+      const replacement = typeof args.replacement === "string" ? args.replacement : "";
+      if (!before || !after || !replacement) {
+        return invalidArgs("Missing anchors or replacement for anchor_replace");
+      }
+      return editFile({
+        allowedRootAbs: context.allowedRootAbs,
+        path: filePath,
+        expectedSha256,
+        mode: "anchor_replace",
+        before: before as any,
+        after: after as any,
+        replacement,
+        expectedOccurrences:
+          typeof args.expectedOccurrences === "number" ? args.expectedOccurrences : undefined,
+        searchFrom: typeof args.searchFrom === "number" ? args.searchFrom : undefined
+      });
+    }
+
+    if (mode === "insert_after") {
+      const anchor = args.anchor as unknown;
+      const text = typeof args.text === "string" ? args.text : "";
+      if (!anchor || !text) {
+        return invalidArgs("Missing anchor or text for insert_after");
+      }
+      return editFile({
+        allowedRootAbs: context.allowedRootAbs,
+        path: filePath,
+        expectedSha256,
+        mode: "insert_after",
+        anchor: anchor as any,
+        text,
+        expectedOccurrences:
+          typeof args.expectedOccurrences === "number" ? args.expectedOccurrences : undefined,
+        searchFrom: typeof args.searchFrom === "number" ? args.searchFrom : undefined
+      });
+    }
+
+    if (mode === "append") {
+      const text = typeof args.text === "string" ? args.text : "";
+      if (!text) {
+        return invalidArgs("Missing text for append");
+      }
+      return editFile({
+        allowedRootAbs: context.allowedRootAbs,
+        path: filePath,
+        expectedSha256,
+        mode: "append",
+        text
+      });
+    }
+
+    return invalidArgs("Unsupported edit_file mode", { mode });
+  },
+  apply_patch: async (args, context) => {
+    const operations = Array.isArray(args.operations)
+      ? (args.operations as Array<{ type?: string; path?: string; diff?: string }>)
+      : [];
+    if (operations.length === 0) {
+      return invalidArgs("Missing operations");
+    }
+    return applyPatchTool({
+      allowedRootAbs: context.allowedRootAbs,
+      operations: operations.map((operation) => ({
+        type: operation.type as "create_file" | "update_file" | "delete_file",
+        path: typeof operation.path === "string" ? operation.path : "",
+        diff: typeof operation.diff === "string" ? operation.diff : undefined
+      })),
+      limits: typeof args.limits === "object" && args.limits
+        ? (args.limits as { maxPatchBytes?: number; maxFileBytes?: number })
+        : undefined
+    });
+  },
+  apply_unified_diff: async (args, context) => {
+    const patchText = typeof args.patchText === "string" ? args.patchText : "";
+    if (!patchText) {
+      return invalidArgs("Missing patchText");
+    }
+    const limits = typeof args.limits === "object" && args.limits
+      ? (args.limits as { maxFiles?: number; maxPatchBytes?: number; maxFileBytes?: number })
+      : undefined;
+    return applyUnifiedDiff({
+      allowedRootAbs: context.allowedRootAbs,
+      patchText,
+      limits
     });
   },
   git_status: async (args, context) => {
@@ -247,15 +345,21 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
       return invalidArgs("Missing name");
     }
     return describeTool(context.workspaceDir, { name });
-  }
+  },
+  build_loop_start: async () => buildLoopStartTool(),
+  build_loop_stop: async () => buildLoopStopTool(),
+  get_build_loops: async () => getBuildLoopsTool(),
+  get_build_loop_detail: async () => getBuildLoopDetailTool()
 };
 
 async function runToolCall(
   workspaceDir: string,
   projectRootAbs: string,
   projectRootRel: string,
+  allowedRootAbs: string,
   call: ToolCall
 ): Promise<ToolResult<unknown>> {
+  const toolName = normalizeToolName(call.function.name);
   let args: Record<string, unknown> = {};
   try {
     args = call.function.arguments
@@ -265,12 +369,12 @@ async function runToolCall(
     return invalidArgs("Invalid tool arguments");
   }
 
-  const handler = TOOL_HANDLERS[call.function.name];
+  const handler = TOOL_HANDLERS[toolName];
   if (!handler) {
     return { ok: false, error: { code: "NOT_FOUND", message: "Unknown tool" } };
   }
 
-  return handler(args, { workspaceDir, projectRootAbs, projectRootRel });
+  return handler(args, { workspaceDir, projectRootAbs, projectRootRel, allowedRootAbs });
 }
 
 export async function runProjectChatLlm(params: {
@@ -280,21 +384,36 @@ export async function runProjectChatLlm(params: {
   projectRootRel: string;
   history: ChatMessage[];
   mode: ChatMode;
+  maxIterations?: number;
   logPath?: string;
+  systemPromptOverride?: string;
+  modelOverride?: string;
   onToolStart?: (payload: ToolStartPayload) => Promise<number> | number;
   onToolEnd?: (payload: ToolEndPayload) => Promise<void> | void;
   toolExecutor?: ToolExecutor;
 }): Promise<string> {
-  const systemPrompt = buildSystemPrompt(params.projectRootRel, params.mode);
+  const systemPrompt = params.systemPromptOverride?.trim().length
+    ? params.systemPromptOverride
+    : buildSystemPrompt(params.projectRootRel, params.mode);
   const tools = TOOL_DEFS;
+  const model = params.modelOverride?.trim().length ? params.modelOverride : "gpt-5.2";
+  const allowedRootAbs = await fsPromises.realpath(params.projectRootAbs);
   const messages: OpenAiMessage[] = [
     { role: "system", content: systemPrompt },
     ...params.history.map((msg) => ({ role: msg.role, content: msg.content }))
   ];
 
-  const maxIterations = 8;
+  const maxIterations =
+    typeof params.maxIterations === "number" && Number.isFinite(params.maxIterations)
+      ? Math.max(1, Math.floor(params.maxIterations))
+      : 100;
   for (let i = 0; i < maxIterations; i += 1) {
-    const { message, toolCalls, raw } = await callOpenAi(params.apiKey, messages, tools);
+    const { message, toolCalls, raw } = await callOpenAi(
+      params.apiKey,
+      messages,
+      tools,
+      model
+    );
     if (params.logPath) {
       fs.mkdirSync(path.dirname(params.logPath), { recursive: true });
       fs.appendFileSync(params.logPath, `${raw}\n\n`, "utf8");
@@ -313,6 +432,7 @@ export async function runProjectChatLlm(params: {
           params.workspaceDir,
           params.projectRootAbs,
           params.projectRootRel,
+          allowedRootAbs,
           call
         );
       };
@@ -354,37 +474,4 @@ export async function runProjectChatLlm(params: {
   }
 
   return "Tool loop did not converge.";
-}
-
-function buildToolMeta(call: ToolCall): string {
-  let args: Record<string, unknown> = {};
-  try {
-    args = call.function.arguments
-      ? (JSON.parse(call.function.arguments) as Record<string, unknown>)
-      : {};
-  } catch {
-    return call.function.name;
-  }
-
-  if (call.function.name === "read_file" || call.function.name === "stat") {
-    const pathArg = typeof args.path === "string" ? args.path : "";
-    return pathArg ? `path=${pathArg}` : "path=?";
-  }
-  if (call.function.name === "read_files") {
-    const paths = Array.isArray(args.paths) ? args.paths.length : 0;
-    return paths > 0 ? `paths=${paths}` : "paths=?";
-  }
-  if (call.function.name === "list_files") {
-    const root = typeof args.root === "string" ? args.root : "";
-    return root ? `root=${root}` : "root=?";
-  }
-  if (call.function.name === "grep") {
-    const query = typeof args.query === "string" ? args.query : "";
-    return query ? `query=${query}` : "query=?";
-  }
-  if (call.function.name === "search_tools") {
-    const query = typeof args.query === "string" ? args.query : "";
-    return query ? `query=${query}` : "query=?";
-  }
-  return call.function.name;
 }

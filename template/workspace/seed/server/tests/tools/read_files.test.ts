@@ -17,8 +17,8 @@ test("read_files reads multiple files and enforces maxTotalBytes", async () => {
     });
     assert.equal(result.ok, true);
     if (result.ok) {
-      const a = result.result.files.find((file) => file.path === "a.txt");
-      const b = result.result.files.find((file) => file.path === "b.txt");
+      const a = result.files.find((file) => file.path === "a.txt");
+      const b = result.files.find((file) => file.path === "b.txt");
       assert.ok(a?.content);
       assert.ok(b?.error);
       assert.equal(b?.error?.code, "TOO_LARGE");

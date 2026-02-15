@@ -23,9 +23,9 @@ test("project_info detects framework and language", async () => {
     const result = await projectInfo({ root });
     assert.equal(result.ok, true);
     if (result.ok) {
-      assert.ok(result.result.frameworks.includes("react"));
-      assert.ok(result.result.languages.includes("ts"));
-      assert.ok(result.result.keyFiles.includes("package.json"));
+      assert.ok(result.frameworks.includes("react"));
+      assert.ok(result.languages.includes("ts"));
+      assert.ok(result.keyFiles.includes("package.json"));
     }
   } finally {
     await removeDir(root);

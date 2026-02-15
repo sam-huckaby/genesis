@@ -161,7 +161,8 @@ export default function Discovery() {
       });
 
       window.dispatchEvent(new Event("seed:projects-updated"));
-      navigate(`/chat?project=${createdName}`);
+      window.localStorage.setItem(`seed.chatMode.${createdName}`, "build");
+      navigate(`/chat?project=${createdName}&mode=build`);
     } catch {
       setMessage("Project creation failed.");
       setIsCreating(false);
@@ -243,7 +244,7 @@ export default function Discovery() {
                 checked={recommendedType === "nextjs"}
                 onChange={() => setRecommendedType("nextjs")}
               />
-              Next.js (recommended)
+              Next.js{recommendedType === "nextjs" ? " (recommended)" : ""}
             </label>
             <label>
               <input
@@ -253,7 +254,7 @@ export default function Discovery() {
                 checked={recommendedType === "go_service"}
                 onChange={() => setRecommendedType("go_service")}
               />
-              Go service
+              Go service{recommendedType === "go_service" ? " (recommended)" : ""}
             </label>
             <label>
               <input
@@ -263,7 +264,7 @@ export default function Discovery() {
                 checked={recommendedType === "ocaml_dune"}
                 onChange={() => setRecommendedType("ocaml_dune")}
               />
-              OCaml (dune)
+              OCaml (dune){recommendedType === "ocaml_dune" ? " (recommended)" : ""}
             </label>
           </div>
 

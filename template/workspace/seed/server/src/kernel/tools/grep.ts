@@ -44,6 +44,7 @@ export const spec: ToolSpec = {
   returnsSchema: {
     type: "object",
     properties: {
+      ok: { type: "boolean" },
       matches: {
         type: "array",
         items: {
@@ -58,15 +59,25 @@ export const spec: ToolSpec = {
           additionalProperties: false
         }
       },
-      truncated: { type: "boolean" }
+      truncated: { type: "boolean" },
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+          hint: { type: "string" }
+        },
+        required: ["code", "message"],
+        additionalProperties: false
+      }
     },
-    required: ["matches", "truncated"],
+    required: ["ok"],
     additionalProperties: false
   },
   examples: [
     {
       input: { root: "projects/demo", query: "TODO" },
-      output: { ok: true, result: { matches: [], truncated: false } }
+      output: { ok: true, matches: [], truncated: false }
     }
   ],
   tags: ["search", "rg"],
@@ -162,10 +173,8 @@ export async function grep(args: GrepArgs): Promise<ToolResult<GrepResult>> {
 
     return {
       ok: true,
-      result: {
-        matches,
-        truncated: matches.length >= maxResults
-      }
+      matches,
+      truncated: matches.length >= maxResults
     };
   } catch (error) {
     return {

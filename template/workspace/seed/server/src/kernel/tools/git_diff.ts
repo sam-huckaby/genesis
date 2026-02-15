@@ -33,16 +33,27 @@ export const spec: ToolSpec = {
   returnsSchema: {
     type: "object",
     properties: {
+      ok: { type: "boolean" },
       diff: { type: "string" },
-      truncated: { type: "boolean" }
+      truncated: { type: "boolean" },
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+          hint: { type: "string" }
+        },
+        required: ["code", "message"],
+        additionalProperties: false
+      }
     },
-    required: ["diff", "truncated"],
+    required: ["ok"],
     additionalProperties: false
   },
   examples: [
     {
       input: { root: "projects/demo", staged: false },
-      output: { ok: true, result: { diff: "", truncated: false } }
+      output: { ok: true, diff: "", truncated: false }
     }
   ],
   tags: ["git", "diff"],
@@ -78,7 +89,7 @@ export async function gitDiff(args: GitDiffArgs): Promise<ToolResult<GitDiffResu
     const truncated = buf.byteLength > maxBytes;
     const diff = truncated ? buf.slice(0, maxBytes).toString("utf-8") : result.stdout;
 
-    return { ok: true, result: { diff, truncated } };
+    return { ok: true, diff, truncated };
   } catch (error) {
     return {
       ok: false,

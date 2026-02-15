@@ -26,6 +26,7 @@ export const spec: ToolSpec = {
   returnsSchema: {
     type: "object",
     properties: {
+      ok: { type: "boolean" },
       branch: { type: "string" },
       isClean: { type: "boolean" },
       changes: {
@@ -39,15 +40,25 @@ export const spec: ToolSpec = {
           required: ["path", "status"],
           additionalProperties: false
         }
+      },
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+          hint: { type: "string" }
+        },
+        required: ["code", "message"],
+        additionalProperties: false
       }
     },
-    required: ["isClean", "changes"],
+    required: ["ok"],
     additionalProperties: false
   },
   examples: [
     {
       input: { root: "projects/demo" },
-      output: { ok: true, result: { isClean: true, changes: [] } }
+      output: { ok: true, isClean: true, changes: [] }
     }
   ],
   tags: ["git", "status"],
@@ -91,7 +102,9 @@ export async function gitStatus(args: GitStatusArgs): Promise<ToolResult<GitStat
 
     return {
       ok: true,
-      result: { branch, isClean: changes.length === 0, changes }
+      branch,
+      isClean: changes.length === 0,
+      changes
     };
   } catch (error) {
     return {

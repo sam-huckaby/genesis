@@ -15,6 +15,7 @@ export type ReadFilesResult = {
     content?: string;
     truncated?: boolean;
     totalBytes?: number;
+    sha256?: string;
     error?: { code: string; message: string };
   }>;
 };
@@ -36,6 +37,7 @@ export const spec: ToolSpec = {
   returnsSchema: {
     type: "object",
     properties: {
+      ok: { type: "boolean" },
       files: {
         type: "array",
         items: {
@@ -45,6 +47,7 @@ export const spec: ToolSpec = {
             content: { type: "string" },
             truncated: { type: "boolean" },
             totalBytes: { type: "number" },
+            sha256: { type: "string" },
             error: {
               type: "object",
               properties: {
@@ -57,15 +60,25 @@ export const spec: ToolSpec = {
           required: ["path"],
           additionalProperties: false
         }
+      },
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+          hint: { type: "string" }
+        },
+        required: ["code", "message"],
+        additionalProperties: false
       }
     },
-    required: ["files"],
+    required: ["ok"],
     additionalProperties: false
   },
   examples: [
     {
       input: { root: "projects/demo", paths: ["src/index.ts"] },
-      output: { ok: true, result: { files: [] } }
+      output: { ok: true, files: [] }
     }
   ],
   tags: ["fs", "read", "batch"],
@@ -92,17 +105,18 @@ export async function readFiles(args: ReadFilesArgs): Promise<ToolResult<ReadFil
       if (!result.ok) {
         out.push({ path: p, error: { code: result.error.code, message: result.error.message } });
       } else {
-        total += Buffer.byteLength(result.result.content, "utf-8");
+        total += Buffer.byteLength(result.content, "utf-8");
         out.push({
           path: p,
-          content: result.result.content,
-          truncated: result.result.truncated,
-          totalBytes: result.result.totalBytes
+          content: result.content,
+          truncated: result.truncated,
+          totalBytes: result.totalBytes,
+          sha256: result.sha256
         });
       }
     }
 
-    return { ok: true, result: { files: out } };
+    return { ok: true, files: out };
   } catch (error) {
     return {
       ok: false,

@@ -15,8 +15,8 @@ test("read_file reads file and supports range", async () => {
     });
     assert.equal(result.ok, true);
     if (result.ok) {
-      assert.equal(result.result.content, "line2");
-      assert.equal(result.result.truncated, false);
+      assert.equal(result.content, "line2");
+      assert.equal(result.truncated, false);
     }
   } finally {
     await removeDir(root);
@@ -30,8 +30,8 @@ test("read_file truncates by maxBytes", async () => {
     const result = await readFileTool({ root, path: "big.txt", maxBytes: 5 });
     assert.equal(result.ok, true);
     if (result.ok) {
-      assert.equal(result.result.content, "01234");
-      assert.equal(result.result.truncated, true);
+      assert.equal(result.content, "01234");
+      assert.equal(result.truncated, true);
     }
   } finally {
     await removeDir(root);
