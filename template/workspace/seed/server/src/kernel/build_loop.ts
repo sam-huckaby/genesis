@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs/promises";
 import type Database from "better-sqlite3";
 import type { RunSpec } from "../adapters/adapter.types.js";
 import type { ProjectBuildLoopResponse } from "@shared/types";
@@ -31,6 +32,7 @@ function normalizeToolName(name: string): string {
 
 function buildLoopPrompt(projectRootRel: string): string {
   return (
+    "You are an experienced DevOps engineer who specializes in the languages and frameworks used in this project. " +
     "You are running a build-compile loop for a project. " +
     `Project root: ${projectRootRel}. ` +
     "Your job is to fix build failures using tools. " +
@@ -38,6 +40,38 @@ function buildLoopPrompt(projectRootRel: string): string {
     "If you need the user to take an action or cannot proceed, call build_loop_stop with a clear reason. " +
     "After fixes, reply with a short summary of what you changed or attempted."
   );
+}
+
+function createTraceLogger(
+  logPath: string,
+  baseFields: Record<string, unknown>
+): (event: string, details?: Record<string, unknown>, iteration?: number, durationMs?: number) => Promise<void> {
+  let dirReady = false;
+  return async (event, details, iteration, durationMs) => {
+    try {
+      if (!dirReady) {
+        await fs.mkdir(path.dirname(logPath), { recursive: true });
+        dirReady = true;
+      }
+      const payload: Record<string, unknown> = {
+        ts: new Date().toISOString(),
+        ...baseFields,
+        event
+      };
+      if (typeof iteration === "number") {
+        payload.iteration = iteration;
+      }
+      if (typeof durationMs === "number") {
+        payload.durationMs = durationMs;
+      }
+      if (details && Object.keys(details).length > 0) {
+        payload.details = details;
+      }
+      await fs.appendFile(logPath, `${JSON.stringify(payload)}\n`);
+    } catch {
+      // Swallow logging errors to avoid breaking the build loop.
+    }
+  };
 }
 
 export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuildLoopResponse> {
@@ -59,6 +93,17 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
     );
   // Get the id of the row I just added
   const loopId = Number(loopInfo.lastInsertRowid);
+  const traceLogPath = path.join(params.workspaceDir, "state", "logs", "build-loop-trace.log");
+  const trace = createTraceLogger(traceLogPath, {
+    loopId,
+    projectId: params.project.id,
+    projectName: params.project.name
+  });
+  await trace("loop.start", {
+    maxIterations: params.maxIterations,
+    model: params.model,
+    toolMaxIterations: params.toolMaxIterations
+  });
   // Emit an event for observability
   recordEvent(
     params.db,
@@ -84,8 +129,21 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
 
   // Loop for up to the max iteration trying to fix the build
   for (let iteration = 1; iteration <= params.maxIterations; iteration += 1) {
+    await trace("iteration.start", undefined, iteration);
     // Start by running the build spec to see if it succeeds
+    const runSpecStarted = Date.now();
+    await trace("build.run_spec.start", undefined, iteration);
     const result = await runSpec(params.workspaceDir, params.buildCommand);
+    await trace(
+      "build.run_spec.end",
+      {
+        exitCode: result.exitCode,
+        stdoutLength: result.stdout.length,
+        stderrLength: result.stderr.length
+      },
+      iteration,
+      Date.now() - runSpecStarted
+    );
     // Grab the current time, so we can track that, because who knows, maybe that's important
     const iterationNow = new Date().toISOString();
     // Store the assistant's summary of this iteration
@@ -113,6 +171,7 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
       );
       // Update the loop status in the database to "success"
       updateLoopStatus.run("success", null, new Date().toISOString(), loopId);
+      await trace("loop.success", undefined, iteration);
       // Emit a build succeeded event
       recordEvent(
         params.db,
@@ -152,10 +211,12 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
     );
     const userContent = `${promptParts.join("\n\n")}\n\nFix the build.`;
 
-
+    // Begin trying to fix things
     try {
       const projectRootAbs = path.join(params.workspaceDir, params.project.rootPathRel);
       const logPath = path.join(params.workspaceDir, "state", "logs", "build-loop.log");
+      const llmStarted = Date.now();
+      await trace("llm.start", undefined, iteration);
       const summary = await runProjectChatLlm({
         apiKey: params.apiKey,
         workspaceDir: params.workspaceDir,
@@ -169,21 +230,40 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
         systemPromptOverride: buildLoopPrompt(params.project.rootPathRel),
         toolExecutor: async (call): Promise<ToolResult<unknown> | null> => {
           const toolName = normalizeToolName(call.function.name);
+          const rawArgs = call.function.arguments;
           let args: Record<string, unknown> = {};
+          let argsKeys: string[] = [];
           try {
-            args = call.function.arguments
-              ? (JSON.parse(call.function.arguments) as Record<string, unknown>)
-              : {};
+            args = rawArgs ? (JSON.parse(rawArgs) as Record<string, unknown>) : {};
+            argsKeys = Object.keys(args);
           } catch {
+            await trace(
+              "tool.call",
+              {
+                toolName,
+                argsKeys: []
+              },
+              iteration
+            );
+            await trace("tool.error", { toolName, code: "INVALID_ARGS" }, iteration);
             return {
               ok: false,
               error: { code: "INVALID_ARGS", message: "Invalid tool arguments" }
             };
           }
+          await trace(
+            "tool.call",
+            {
+              toolName,
+              argsKeys
+            },
+            iteration
+          );
 
           if (toolName === "build_loop_stop") {
             const reason = typeof args.reason === "string" ? args.reason.trim() : "";
             if (!reason) {
+              await trace("tool.error", { toolName, code: "INVALID_ARGS" }, iteration);
               return {
                 ok: false,
                 error: { code: "INVALID_ARGS", message: "Missing reason" }
@@ -191,6 +271,7 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
             }
             stopRequested = true;
             stopReason = reason;
+            await trace("tool.build_loop_stop", { reason }, iteration);
             return { ok: true, stopped: true, reason } as ToolResult<unknown>;
           }
 
@@ -198,6 +279,7 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
             const requestedProject =
               typeof args.projectName === "string" ? args.projectName.trim() : "";
             if (!requestedProject || requestedProject !== params.project.name) {
+              await trace("tool.error", { toolName, code: "INVALID_ARGS" }, iteration);
               return {
                 ok: false,
                 error: { code: "INVALID_ARGS", message: "Unknown project" }
@@ -237,6 +319,7 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
               typeof args.projectName === "string" ? args.projectName.trim() : "";
             const loopIdArg = typeof args.loopId === "number" ? args.loopId : NaN;
             if (!requestedProject || requestedProject !== params.project.name || !Number.isFinite(loopIdArg)) {
+              await trace("tool.error", { toolName, code: "INVALID_ARGS" }, iteration);
               return {
                 ok: false,
                 error: { code: "INVALID_ARGS", message: "Invalid project or loopId" }
@@ -293,17 +376,24 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
               }
             } as ToolResult<unknown>;
           }
-
+          await trace("tool.unknown", { toolName }, iteration);
           return null;
         }
       });
       assistantSummary = summary;
       lastSummary = summary;
+      await trace(
+        "llm.end",
+        { summaryLength: summary.length },
+        iteration,
+        Date.now() - llmStarted
+      );
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Build loop LLM failed";
       assistantSummary = `LLM error: ${reason}`;
       stopRequested = true;
       stopReason = reason;
+      await trace("llm.error", { reason }, iteration);
     }
 
     insertIteration.run(
@@ -331,8 +421,11 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
       assistantSummary
     };
 
+    await trace("iteration.recorded", { exitCode: result.exitCode }, iteration);
+
     if (stopRequested) {
       updateLoopStatus.run("blocked", stopReason, new Date().toISOString(), loopId);
+      await trace("loop.blocked", { reason: stopReason }, iteration);
       recordEvent(
         params.db,
         "project.build_loop.blocked",
@@ -349,6 +442,7 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
   }
 
   updateLoopStatus.run("failed", null, new Date().toISOString(), loopId);
+  await trace("loop.failed");
   recordEvent(params.db, "project.build_loop.failed", { loopId }, params.project.id);
   return {
     ok: false,
