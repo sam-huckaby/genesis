@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 
+// Shared async git runner for tool implementations.
 export async function runGit(
   args: string[],
   cwd: string

@@ -61,13 +61,22 @@ export function createOcamlDuneAdapter(): ProjectAdapter {
         }
       ];
 
+      const makefileContent = `.PHONY: build test
+
+build:
+	@if command -v dune >/dev/null 2>&1; then dune build; else OPAM=""; if [ -n "$$OPAMROOT" ] && [ -x "$$OPAMROOT/opam" ]; then OPAM="$$OPAMROOT/opam"; fi; if [ -z "$$OPAM" ] && [ -x "$$HOME/.opam/opam" ]; then OPAM="$$HOME/.opam/opam"; fi; if [ -z "$$OPAM" ] && [ -x "/opt/homebrew/bin/opam" ]; then OPAM="/opt/homebrew/bin/opam"; fi; if [ -z "$$OPAM" ] && [ -x "/usr/local/bin/opam" ]; then OPAM="/usr/local/bin/opam"; fi; if [ -z "$$OPAM" ] && [ -x "/usr/bin/opam" ]; then OPAM="/usr/bin/opam"; fi; if [ -z "$$OPAM" ]; then OPAM="$$(command -v opam 2>/dev/null)"; fi; if [ -n "$$OPAM" ]; then "$$OPAM" exec -- dune build; else echo "${missingMessage}" 1>&2; exit 1; fi; fi
+
+test:
+	@if command -v dune >/dev/null 2>&1; then dune test; else OPAM=""; if [ -n "$$OPAMROOT" ] && [ -x "$$OPAMROOT/opam" ]; then OPAM="$$OPAMROOT/opam"; fi; if [ -z "$$OPAM" ] && [ -x "$$HOME/.opam/opam" ]; then OPAM="$$HOME/.opam/opam"; fi; if [ -z "$$OPAM" ] && [ -x "/opt/homebrew/bin/opam" ]; then OPAM="/opt/homebrew/bin/opam"; fi; if [ -z "$$OPAM" ] && [ -x "/usr/local/bin/opam" ]; then OPAM="/usr/local/bin/opam"; fi; if [ -z "$$OPAM" ] && [ -x "/usr/bin/opam" ]; then OPAM="/usr/bin/opam"; fi; if [ -z "$$OPAM" ]; then OPAM="$$(command -v opam 2>/dev/null)"; fi; if [ -n "$$OPAM" ]; then "$$OPAM" exec -- dune test; else echo "${missingMessage}" 1>&2; exit 1; fi; fi
+`;
+
       const agentContent = `# AGENT
 
 This project is managed by the Seed harness. All code changes are proposed and reviewed before apply.
 
 ## Dev commands (dune)
-- Build: \`dune build\`
-- Test: \`dune test\`
+- Build: \`make build\`
+- Test: \`make test\`
 
 ## Workflow
 - Use the Seed UI to propose changes and review patches.
@@ -81,8 +90,8 @@ This project is managed by the Seed harness. All code changes are proposed and r
       const conventions: Conventions = {
         summary: "OCaml project initialized with dune.",
         commands: {
-          build: "dune build",
-          test: "dune test"
+          build: "make build",
+          test: "make test"
         },
         layoutHints: {
           lib: "lib/",
@@ -93,8 +102,13 @@ This project is managed by the Seed harness. All code changes are proposed and r
       return {
         runs,
         postPatch: {
-          description: "Add AGENT.md for Seed workflow guidance",
+          description: "Add Makefile and AGENT.md for Seed workflow guidance",
           files: [
+            {
+              type: "write",
+              pathRel: `${projectPathRel}/Makefile`,
+              content: makefileContent
+            },
             {
               type: "write",
               pathRel: `${projectPathRel}/AGENT.md`,
@@ -114,14 +128,14 @@ This project is managed by the Seed harness. All code changes are proposed and r
       return {
         build: {
           cwdRel: projectPathRel,
-          cmd: "sh",
-          args: ["-c", wrapShell(duneRun("build"))],
+          cmd: "make",
+          args: ["build"],
           allow: "build"
         },
         test: {
           cwdRel: projectPathRel,
-          cmd: "sh",
-          args: ["-c", wrapShell(duneRun("test"))],
+          cmd: "make",
+          args: ["test"],
           allow: "test"
         }
       };
@@ -130,8 +144,8 @@ This project is managed by the Seed harness. All code changes are proposed and r
       return {
         summary: "OCaml project initialized with dune.",
         commands: {
-          build: "dune build",
-          test: "dune test"
+          build: "make build",
+          test: "make test"
         },
         layoutHints: {
           lib: "lib/",

@@ -2,7 +2,8 @@ import type {
   Conventions,
   DetectResult,
   InitResult,
-  ProjectAdapter
+  ProjectAdapter,
+  RunSpec
 } from "./adapter.types.js";
 
 export function createGoAdapter(): ProjectAdapter {
@@ -13,12 +14,21 @@ export function createGoAdapter(): ProjectAdapter {
     async detect(): Promise<DetectResult | null> {
       return null;
     },
-    async init(): Promise<InitResult> {
+    async init(projectPathRel: string): Promise<InitResult> {
+      const makefileContent = `.PHONY: build test
+
+build:
+	go build ./...
+
+test:
+	go test ./...
+`;
+
       const conventions: Conventions = {
         summary: "Go service with go.mod and cmd/ entrypoint.",
         commands: {
-          build: "go build ./...",
-          test: "go test ./..."
+          build: "make build",
+          test: "make test"
         },
         layoutHints: {
           cmd: "cmd/",
@@ -26,21 +36,46 @@ export function createGoAdapter(): ProjectAdapter {
         }
       };
 
+      const runs: RunSpec[] = [];
+
       return {
-        runs: [],
+        runs,
+        postPatch: {
+          description: "Add Makefile for unified build and test commands",
+          files: [
+            {
+              type: "write",
+              pathRel: `${projectPathRel}/Makefile`,
+              content: makefileContent
+            }
+          ]
+        },
         conventions,
         suggestedTasks: [{ title: "Define service goal" }]
       };
     },
-    commands() {
-      return {};
+    commands(projectPathRel: string) {
+      return {
+        build: {
+          cwdRel: projectPathRel,
+          cmd: "make",
+          args: ["build"],
+          allow: "build"
+        },
+        test: {
+          cwdRel: projectPathRel,
+          cmd: "make",
+          args: ["test"],
+          allow: "test"
+        }
+      };
     },
     conventions() {
       return {
         summary: "Go service with go.mod and cmd/ entrypoint.",
         commands: {
-          build: "go build ./...",
-          test: "go test ./..."
+          build: "make build",
+          test: "make test"
         },
         layoutHints: {
           cmd: "cmd/",

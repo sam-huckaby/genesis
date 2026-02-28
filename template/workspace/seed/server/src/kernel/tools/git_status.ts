@@ -4,6 +4,7 @@ import { runGit } from "./git_utils.js";
 import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Tool to expose git status with porcelain parsing.
 export type GitStatusArgs = { root: string };
 
 export type GitStatusResult = {
@@ -95,6 +96,7 @@ export async function gitStatus(args: GitStatusArgs): Promise<ToolResult<GitStat
       .split("\n")
       .filter(Boolean)
       .map((line) => {
+        // Porcelain format: XY <path> (ignore rename/copy extra for now).
         const status = line.slice(0, 2).trim();
         const file = line.slice(3).trim();
         return { path: file, status };

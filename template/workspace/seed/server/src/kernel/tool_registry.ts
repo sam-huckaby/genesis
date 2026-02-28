@@ -2,6 +2,7 @@ import path from "node:path";
 import type Database from "better-sqlite3";
 import { openToolsDb } from "../storage/tools_db.js";
 
+// Tool registry backed by a sqlite FTS index for discovery and metadata.
 export type ToolContract = {
   name: string;
   description: string;
@@ -22,6 +23,7 @@ export function searchTools(
   query: string,
   topK = 8
 ): ToolSearchResult {
+  // Return top-K matching tool contracts from the FTS index.
   const db = openToolsDb(workspaceDir);
   const toolNames = searchToolNames(db, query, topK);
   const tools = toolNames
@@ -34,11 +36,13 @@ export function getToolContractByName(
   workspaceDir: string,
   name: string
 ): ToolContract | null {
+  // Simple by-name lookup without FTS ranking.
   const db = openToolsDb(workspaceDir);
   return getToolContract(db, name);
 }
 
 export function resolveToolSourcePath(workspaceDir: string, name: string): string | null {
+  // Translate stored relative file path to an absolute workspace path.
   const db = openToolsDb(workspaceDir);
   const row = db
     .prepare("SELECT file_path FROM tools WHERE name = ?")
@@ -50,6 +54,7 @@ export function resolveToolSourcePath(workspaceDir: string, name: string): strin
 }
 
 function searchToolNames(db: Database.Database, query: string, topK: number): string[] {
+  // Use sqlite FTS bm25 ranking for relevance ordering.
   const trimmed = query.trim();
   if (!trimmed) {
     return [];
@@ -63,6 +68,7 @@ function searchToolNames(db: Database.Database, query: string, topK: number): st
 }
 
 function getToolContract(db: Database.Database, name: string): ToolContract | null {
+  // Deserialize schema and examples JSON into structured objects.
   const tool = db
     .prepare(
       "SELECT name, description, args_schema_json, returns_schema_json, tags_json, examples_json, file_path FROM tools WHERE name = ?"

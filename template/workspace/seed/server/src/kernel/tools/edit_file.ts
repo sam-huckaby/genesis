@@ -5,6 +5,7 @@ import { resolvePathWithinRoot } from "./safe_path.js";
 import type { ToolErrorCode, ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Tool to perform small, anchored edits with strong precondition checks.
 export type Anchor =
   | { type: "text"; value: string }
   | { type: "eof" };
@@ -157,6 +158,7 @@ function byteSize(text: string) {
 }
 
 function indexToLine(text: string, index: number): number {
+  // Convert character index to 1-based line number for diagnostics.
   if (index <= 0) {
     return 1;
   }
@@ -189,6 +191,7 @@ function isEofAnchor(anchor: Anchor | undefined): anchor is { type: "eof" } {
 function validateTextAnchor(anchor: Anchor | undefined):
   | { ok: true }
   | { ok: false; code: ToolErrorCode; message: string } {
+  // Validate required shape and value for anchors.
   if (!anchor) {
     return { ok: false, code: "ANCHOR_REQUIRED", message: "Anchor is required." };
   }
@@ -204,6 +207,7 @@ function validateTextAnchor(anchor: Anchor | undefined):
 function checkOverlaps(matches: MatchRegion[], source: string):
   | { ok: true }
   | { ok: false; code: ToolErrorCode; message: string; details?: unknown } {
+  // Reject overlapping anchor ranges to avoid ambiguous edits.
   if (matches.length <= 1) {
     return { ok: true as const };
   }
@@ -233,6 +237,7 @@ function checkOverlaps(matches: MatchRegion[], source: string):
 }
 
 export async function editFile(input: EditFileArgs): Promise<ToolResult<EditFileResult>> {
+  // Resolve and validate the target path before reading.
   const resolved = await resolvePathWithinRoot({
     allowedRootAbs: input.allowedRootAbs,
     relativePath: input.path
@@ -246,6 +251,7 @@ export async function editFile(input: EditFileArgs): Promise<ToolResult<EditFile
 
   const rel = input.path.replaceAll("\\", "/");
   const baseName = path.posix.basename(rel);
+  // Deny editing sensitive paths regardless of tool args.
   if (rel.startsWith(".git/") || rel === ".git") {
     return {
       ok: false,
@@ -284,6 +290,7 @@ export async function editFile(input: EditFileArgs): Promise<ToolResult<EditFile
   const normalizedBefore = before.replace(/\r\n/g, "\n");
   const shaBefore = sha256(normalizedBefore);
   if (shaBefore !== input.expectedSha256) {
+    // Prevent editing stale content; caller must re-read.
     return {
       ok: false,
       error: {
@@ -307,6 +314,7 @@ export async function editFile(input: EditFileArgs): Promise<ToolResult<EditFile
   let replacementText = "";
 
   if (input.mode === "anchor_replace") {
+    // Replace text between before/after anchors with replacement.
     const beforeAnchor = input.before;
     const afterAnchor = input.after;
     const replacement = input.replacement ?? "";
@@ -347,7 +355,7 @@ export async function editFile(input: EditFileArgs): Promise<ToolResult<EditFile
         break;
       }
       const beforeEnd = beforeIndex + beforeAnchor.value.length;
-    if (isEofAnchor(afterAnchorSafe)) {
+      if (isEofAnchor(afterAnchorSafe)) {
         matches.push({
           start: beforeIndex,
           end: normalizedBefore.length,
@@ -422,6 +430,7 @@ export async function editFile(input: EditFileArgs): Promise<ToolResult<EditFile
     replaceEnd = match.afterStart;
     replacementText = replacement;
   } else if (input.mode === "insert_after") {
+    // Insert text immediately after an anchor match.
     const anchor = input.anchor;
     const text = input.text ?? "";
     const anchorValidation = validateTextAnchor(anchor);
@@ -504,6 +513,7 @@ export async function editFile(input: EditFileArgs): Promise<ToolResult<EditFile
     replaceEnd = match.afterStart;
     replacementText = text;
   } else if (input.mode === "append") {
+    // Append text to end-of-file.
     const text = input.text ?? "";
     if (!text) {
       return {

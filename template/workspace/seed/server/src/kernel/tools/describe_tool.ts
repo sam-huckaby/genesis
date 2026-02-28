@@ -2,6 +2,7 @@ import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 import { getToolContractByName } from "../tool_registry.js";
 
+// Tool wrapper that returns full tool metadata from the registry.
 export type DescribeToolArgs = { name: string };
 
 export type DescribeToolResult = {
@@ -65,6 +66,7 @@ export async function describeTool(
   args: DescribeToolArgs
 ): Promise<ToolResult<DescribeToolResult>> {
   try {
+    // Normalize any "functions." prefix from tool calls.
     const normalizedName = args.name.replace(/^functions\./, "");
     const tool = getToolContractByName(workspaceDir, normalizedName);
     if (!tool) {

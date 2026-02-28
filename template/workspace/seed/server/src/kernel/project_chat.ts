@@ -22,6 +22,7 @@ import { getBuildLoopDetailTool } from "./tools/get_build_loop_detail.js";
 import { buildToolMeta } from "./project_chat_meta.js";
 import type { ToolResult } from "./tools/tool_result.js";
 
+// Main LLM chat loop used for both planning and build-fix modes.
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -81,6 +82,7 @@ type ToolHandler = (
 ) => Promise<ToolResult<unknown>>;
 
 function buildSystemPrompt(projectRootRel: string, mode: ChatMode): string {
+  // Shared prompt envelope for all project chat modes.
   return (
     "You are a project assistant working inside a project workspace. " +
     `Project root: ${projectRootRel}. ` +
@@ -102,6 +104,7 @@ async function callOpenAi(
   tools: typeof TOOL_DEFS,
   model: string
 ): Promise<{ message: OpenAiMessage; toolCalls?: ToolCall[]; raw: string }> {
+  // Low-level call for a single chat completion turn.
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -137,6 +140,7 @@ function resolveRootArg(
   workspaceDir: string,
   projectRootAbs: string
 ): string {
+  // Default to project root if no explicit root is provided.
   if (typeof input === "string" && input.trim().length > 0) {
     return path.isAbsolute(input) ? input : path.resolve(workspaceDir, input);
   }
@@ -153,6 +157,7 @@ function normalizeToolName(name: string): string {
 
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
   list_files: async (args, context) => {
+    // File listing respects the resolved root directory.
     const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
     return listFiles({
       root,
@@ -163,6 +168,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     });
   },
   read_file: async (args, context) => {
+    // Single file read with optional byte and line range limits.
     const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
     const filePath = typeof args.path === "string" ? args.path : "";
     if (!filePath) {
@@ -179,6 +185,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     });
   },
   read_files: async (args, context) => {
+    // Batch file read with total byte limit enforcement.
     const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
     const paths = Array.isArray(args.paths) ? (args.paths as string[]) : [];
     if (paths.length === 0) {
@@ -192,6 +199,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     });
   },
   stat: async (args, context) => {
+    // Safe filesystem stat relative to the resolved root.
     const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
     const targetPath = typeof args.path === "string" ? args.path : "";
     if (!targetPath) {
@@ -200,6 +208,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     return statPath({ root, path: targetPath });
   },
   grep: async (args, context) => {
+    // Search across files with optional regex/glob filters.
     const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
     const query = typeof args.query === "string" ? args.query : "";
     if (!query) {
@@ -216,10 +225,12 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     });
   },
   project_info: async (args, context) => {
+    // Returns repo metadata and language hints for the project.
     const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
     return projectInfo({ root });
   },
   edit_file: async (args, context) => {
+    // Gate edits through content hashing and allowed-root enforcement.
     const filePath = typeof args.path === "string" ? args.path : "";
     const expectedSha256 = typeof args.expectedSha256 === "string" ? args.expectedSha256 : "";
     const mode = typeof args.mode === "string" ? args.mode : "";
@@ -228,6 +239,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     }
 
     if (mode === "anchor_replace") {
+      // Replace text between two anchors with a supplied replacement.
       const before = args.before as unknown;
       const after = args.after as unknown;
       const replacement = typeof args.replacement === "string" ? args.replacement : "";
@@ -249,6 +261,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     }
 
     if (mode === "insert_after") {
+      // Insert text immediately after the anchor match.
       const anchor = args.anchor as unknown;
       const text = typeof args.text === "string" ? args.text : "";
       if (!anchor || !text) {
@@ -268,6 +281,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     }
 
     if (mode === "append") {
+      // Append text to the end of the file.
       const text = typeof args.text === "string" ? args.text : "";
       if (!text) {
         return invalidArgs("Missing text for append");
@@ -284,6 +298,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     return invalidArgs("Unsupported edit_file mode", { mode });
   },
   apply_patch: async (args, context) => {
+    // V4A-style patch operations against allowed roots only.
     const operations = Array.isArray(args.operations)
       ? (args.operations as Array<{ type?: string; path?: string; diff?: string }>)
       : [];
@@ -303,6 +318,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     });
   },
   apply_unified_diff: async (args, context) => {
+    // Unified diff application for larger multi-file edits.
     const patchText = typeof args.patchText === "string" ? args.patchText : "";
     if (!patchText) {
       return invalidArgs("Missing patchText");
@@ -317,10 +333,12 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     });
   },
   git_status: async (args, context) => {
+    // Git status for the resolved root (workspace or project).
     const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
     return gitStatus({ root });
   },
   git_diff: async (args, context) => {
+    // Git diff for a ref or staged state with size limits.
     const root = resolveRootArg(args.root, context.workspaceDir, context.projectRootAbs);
     return gitDiff({
       root,
@@ -330,6 +348,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     });
   },
   search_tools: async (args, context) => {
+    // Fuzzy search tool registry by name or description.
     const query = typeof args.query === "string" ? args.query : "";
     if (!query) {
       return invalidArgs("Missing query");
@@ -340,6 +359,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     });
   },
   describe_tool: async (args, context) => {
+    // Return full schema for a single tool name.
     const name = typeof args.name === "string" ? args.name : "";
     if (!name) {
       return invalidArgs("Missing name");
@@ -359,6 +379,7 @@ async function runToolCall(
   allowedRootAbs: string,
   call: ToolCall
 ): Promise<ToolResult<unknown>> {
+  // Parse tool args, validate the tool name, and dispatch to handler.
   const toolName = normalizeToolName(call.function.name);
   let args: Record<string, unknown> = {};
   try {
@@ -392,6 +413,7 @@ export async function runProjectChatLlm(params: {
   onToolEnd?: (payload: ToolEndPayload) => Promise<void> | void;
   toolExecutor?: ToolExecutor;
 }): Promise<string> {
+  // Core loop: call the LLM, execute tools, and feed results back until final.
   const systemPrompt = params.systemPromptOverride?.trim().length
     ? params.systemPromptOverride
     : buildSystemPrompt(params.projectRootRel, params.mode);
@@ -415,6 +437,7 @@ export async function runProjectChatLlm(params: {
       model
     );
     if (params.logPath) {
+      // Persist raw completion JSON for audit/debug purposes.
       fs.mkdirSync(path.dirname(params.logPath), { recursive: true });
       fs.appendFileSync(params.logPath, `${raw}\n\n`, "utf8");
     }
@@ -422,6 +445,7 @@ export async function runProjectChatLlm(params: {
       messages.push({ role: "assistant", content: message.content ?? "", tool_calls: toolCalls });
 
       const executeTool = async (call: ToolCall): Promise<ToolResult<unknown>> => {
+        // Allow a custom executor to intercept certain tools.
         if (params.toolExecutor) {
           const handled = await params.toolExecutor(call, params.mode);
           if (handled) {
@@ -452,6 +476,7 @@ export async function runProjectChatLlm(params: {
 
         const result = await executeTool(call);
         if (params.onToolEnd && toolMessageId) {
+          // Report tool completion status back to the caller/UI.
           await params.onToolEnd({
             messageId: toolMessageId,
             status: result.ok ? "done" : "error",

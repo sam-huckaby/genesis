@@ -4,6 +4,7 @@ import { runGit } from "./git_utils.js";
 import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Tool to return git diff with optional ref/staged options.
 export type GitDiffArgs = {
   root: string;
   ref?: string;

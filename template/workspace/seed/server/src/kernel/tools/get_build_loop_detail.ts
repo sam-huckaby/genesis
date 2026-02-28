@@ -1,6 +1,7 @@
 import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Stub tool spec: only available inside build-loop tool execution.
 export type GetBuildLoopDetailArgs = {
   projectName: string;
   loopId: number;
@@ -87,6 +88,7 @@ export const spec: ToolSpec = {
 };
 
 export function getBuildLoopDetailTool(): ToolResult<GetBuildLoopDetailResult> {
+  // The build-loop runner provides the actual implementation.
   return {
     ok: false,
     error: {

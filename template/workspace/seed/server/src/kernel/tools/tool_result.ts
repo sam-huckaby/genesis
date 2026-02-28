@@ -1,3 +1,4 @@
+// Canonical error codes used across tool implementations.
 export type ToolErrorCode =
   | "INVALID_ARGS"
   | "NOT_FOUND"
@@ -43,8 +44,10 @@ export type ToolErrorCode =
   | "TEMP_WRITE_FAILED"
   | "COMMIT_FAILED";
 
+// Successful tool result with optional warnings.
 export type ToolOk<T> = { ok: true; warnings?: string[] } & T;
 
+// Standardized error payload for tool failures.
 export type ToolErr = {
   ok: false;
   error: {
@@ -55,4 +58,5 @@ export type ToolErr = {
   };
 };
 
+// Union of success and error results returned by tools.
 export type ToolResult<T> = ToolOk<T> | ToolErr;

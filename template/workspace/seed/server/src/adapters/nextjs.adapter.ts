@@ -31,14 +31,24 @@ export function createNextJsAdapter(): ProjectAdapter {
         }
       ];
 
+      const makefileContent = `.PHONY: build test
+
+build:
+	bun run build
+
+test:
+	bun run lint
+`;
+
       const agentContent = `# AGENT
 
 This project is managed by the Seed harness. All code changes are proposed and reviewed before apply.
 
 ## Dev commands (bun)
 - Run dev server: \`bun dev\`
+- Build: \`make build\`
+- Test: \`make test\`
 - Lint: \`bun lint\`
-- Build: \`bun run build\`
 
 ## Workflow
 - Use the Seed UI to propose changes and review patches.
@@ -53,7 +63,8 @@ This project is managed by the Seed harness. All code changes are proposed and r
         summary: "Next.js app directory with TypeScript and ESLint.",
         commands: {
           dev: "bun dev",
-          build: "bun run build",
+          build: "make build",
+          test: "make test",
           lint: "bun lint"
         },
         layoutHints: {
@@ -65,8 +76,13 @@ This project is managed by the Seed harness. All code changes are proposed and r
       return {
         runs,
         postPatch: {
-          description: "Add AGENT.md for Seed workflow guidance",
+          description: "Add Makefile and AGENT.md for Seed workflow guidance",
           files: [
+            {
+              type: "write",
+              pathRel: `${projectPathRel}/Makefile`,
+              content: makefileContent
+            },
             {
               type: "write",
               pathRel: `${projectPathRel}/AGENT.md`,
@@ -94,9 +110,15 @@ This project is managed by the Seed harness. All code changes are proposed and r
         },
         build: {
           cwdRel: projectPathRel,
-          cmd: "bun",
-          args: ["run", "build"],
+          cmd: "make",
+          args: ["build"],
           allow: "build"
+        },
+        test: {
+          cwdRel: projectPathRel,
+          cmd: "make",
+          args: ["test"],
+          allow: "test"
         },
         lint: {
           cwdRel: projectPathRel,
@@ -111,7 +133,8 @@ This project is managed by the Seed harness. All code changes are proposed and r
         summary: "Next.js app directory with TypeScript and ESLint.",
         commands: {
           dev: "bun dev",
-          build: "bun run build",
+          build: "make build",
+          test: "make test",
           lint: "bun lint"
         },
         layoutHints: {

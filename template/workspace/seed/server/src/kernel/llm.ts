@@ -1,3 +1,4 @@
+// LLM integration for the discovery flow (MVP recommendation only).
 export type DiscoveryLlmResponse = {
   status: "needs_more_info" | "ready";
   assistantMessage: string;
@@ -19,6 +20,7 @@ export async function runDiscoveryLlm(
   transcript: DiscoveryMessage[],
   options?: { logRaw?: (raw: string) => void }
 ): Promise<{ parsed: DiscoveryLlmResponse; raw: string }> {
+  // Specialized discovery prompt: asks clarifying questions and returns JSON only.
   const systemPrompt =
     "You are a discovery assistant for a code generation seed. Ask clarifying questions until you can recommend a minimal MVP scaffold. Choose one of: nextjs (web UI apps), go_service (backend APIs/services when interoperability with many other languages or ecosystems is a priority), ocaml_dune (backend APIs/services when strong static types and correctness are a priority, or when OCaml/Dune/FP is requested; OCaml can serve APIs via Dream, though the ecosystem is smaller). Do not write code or provide build steps; discovery only. When ready, return a JSON object only. The JSON must include status, assistantMessage, recommendation (recommended + alternatives), draftBrief, suggestedName. draftBrief must be a string. suggestedName must be a lowercase slug string. If unknown, return empty strings. If more info is needed, set status=needs_more_info and ask 1-3 targeted questions. If ready, set status=ready and provide recommendation and draftBrief. You are observing the requests of a user to their builder agent. You may ask them questions to clarify their intent, but all of your output is going to be handed to the builder agent who is already waiting to begin work. Your job is to clearly understand the user's goal and suggest a language/framework so that they can make an informed decision when they begin working with their builder agent.";
 
@@ -56,6 +58,7 @@ export async function runDiscoveryLlm(
 }
 
 function parseJsonResponse(raw: string): DiscoveryLlmResponse {
+  // Tolerate extra text by extracting the first JSON object if needed.
   const trimmed = raw.trim();
   try {
     return JSON.parse(trimmed) as DiscoveryLlmResponse;

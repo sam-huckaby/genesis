@@ -5,9 +5,11 @@ import type Database from "better-sqlite3";
 import { recordEvent } from "../storage/events.js";
 import { diffTouchesSensitivePath } from "../util/project_files.js";
 
+// Changeset plumbing: validate diffs, stash them safely, and persist metadata.
 export type DiffFile = { path: string; diff: string };
 
 export function ensureGitRepo(workspaceDir: string) {
+  // All changeset operations rely on git for diffs, stash, and patch apply.
   const gitDir = path.join(workspaceDir, ".git");
   if (!fs.existsSync(gitDir)) {
     throw new Error("Git repository not found in workspace");
@@ -15,6 +17,7 @@ export function ensureGitRepo(workspaceDir: string) {
 }
 
 export function runGit(workspaceDir: string, args: string[]): string {
+  // Helper wrapper for consistent cwd and encoding.
   return execFileSync("git", args, { cwd: workspaceDir, encoding: "utf8" }).trim();
 }
 
@@ -31,6 +34,7 @@ export function getStashDiff(workspaceDir: string, stashRef: string): string {
 }
 
 export function parseUnifiedDiff(diff: string): DiffFile[] {
+  // Split unified diff into file-level chunks keyed by a/ b/ paths.
   const blocks = diff.split(/^diff --git /m).filter((part) => part.trim().length > 0);
   return blocks.map((block) => {
     const lines = block.split("\n");
@@ -47,6 +51,7 @@ export function buildDiffFromFiles(files: DiffFile[]): string {
 }
 
 export function updateChangesetFiles(db: Database.Database, changesetId: number, files: DiffFile[]) {
+  // Replace the stored file list for a changeset atomically.
   const deleteStmt = db.prepare("DELETE FROM changeset_files WHERE changeset_id = ?");
   deleteStmt.run(changesetId);
   const insertStmt = db.prepare(
@@ -56,6 +61,7 @@ export function updateChangesetFiles(db: Database.Database, changesetId: number,
 }
 
 export function writeTempPatch(workspaceDir: string, diff: string): string {
+  // Persist the patch on disk so git can apply/check it.
   const dir = path.join(workspaceDir, "state", "patches");
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, `changeset-${Date.now()}.patch`);
@@ -64,11 +70,13 @@ export function writeTempPatch(workspaceDir: string, diff: string): string {
 }
 
 export function getLatestStashRef(workspaceDir: string): string {
+  // Returns "stash@{0}" or empty string if no stash entries exist.
   const output = runGit(workspaceDir, ["stash", "list", "-n", "1", "--pretty=format:%gd"]);
   return output.split("\n")[0]?.trim() ?? "";
 }
 
 export function createStashFromDiff(workspaceDir: string, diff: string, message: string): string {
+  // Apply the diff to a clean tree, stash it, then reset the workspace.
   const patchPath = writeTempPatch(workspaceDir, diff);
   try {
     checkPatchApplies(workspaceDir, patchPath);
@@ -87,6 +95,7 @@ export function createStashFromDiff(workspaceDir: string, diff: string, message:
 }
 
 export function cleanWorkingTree(workspaceDir: string) {
+  // WARNING: This hard-resets and removes untracked files.
   execFileSync("git", ["reset", "--hard"], { cwd: workspaceDir, stdio: "pipe" });
   execFileSync("git", ["clean", "-fd"], { cwd: workspaceDir, stdio: "pipe" });
 }
@@ -98,6 +107,7 @@ export function createChangesetProposal(params: {
   summary: string;
   diff: string;
 }): { changesetId: number; stashRef: string; files: DiffFile[] } {
+  // Validate workspace, ensure diff is safe, and persist a changeset row.
   ensureGitRepo(params.workspaceDir);
 
   if (diffTouchesSensitivePath(params.diff)) {
@@ -153,6 +163,7 @@ export function createChangesetProposal(params: {
 }
 
 function checkPatchApplies(workspaceDir: string, patchPath: string) {
+  // First try a strict check, then retry with --recount for fuzzy offsets.
   try {
     execFileSync("git", ["apply", "--check", patchPath], {
       cwd: workspaceDir,
@@ -168,6 +179,7 @@ function checkPatchApplies(workspaceDir: string, patchPath: string) {
 }
 
 function applyPatch(workspaceDir: string, patchPath: string) {
+  // Apply with --recount to tolerate minor line drift.
   execFileSync("git", ["apply", "--recount", patchPath], {
     cwd: workspaceDir,
     stdio: "pipe"

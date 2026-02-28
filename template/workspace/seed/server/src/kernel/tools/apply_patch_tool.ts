@@ -5,6 +5,7 @@ import { resolvePathWithinRoot } from "./safe_path.js";
 import type { ToolErrorCode, ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Apply headerless V4A-style patches with per-operation validation.
 export type ApplyPatchOperation = {
   type: "create_file" | "update_file" | "delete_file";
   path: string;
@@ -195,6 +196,7 @@ type PlannedDelete = {
 const ENDLINE_RE = /\r?\n/;
 
 function normalizeDiffLines(diff: string): string[] {
+  // Normalize line endings and strip trailing empty line.
   return diff
     .split(ENDLINE_RE)
     .map((line) => line.replace(/\r$/, ""))
@@ -202,6 +204,7 @@ function normalizeDiffLines(diff: string): string[] {
 }
 
 function parseHeaderlessDiff(diff: string): ParseResult {
+  // V4A patches use "@@" lines without line numbers.
   const lines = normalizeDiffLines(diff);
   if (lines.length === 0) {
     return { ok: false, error: { code: "EMPTY_PATCH", message: "Diff is empty." } };
@@ -278,6 +281,7 @@ function parseHeaderlessDiff(diff: string): ParseResult {
 }
 
 function matchesAt(lines: string[], hunk: Hunk, start: number): boolean {
+  // Check whether all non-addition lines match at the given offset.
   let pos = start;
   for (const line of hunk.lines) {
     if (line.kind === "+") {
@@ -295,6 +299,7 @@ function matchesAt(lines: string[], hunk: Hunk, start: number): boolean {
 }
 
 function findHunkMatches(lines: string[], hunk: Hunk): number[] {
+  // Find all candidate offsets where the hunk context matches.
   const matches: number[] = [];
   for (let i = 0; i <= lines.length; i += 1) {
     if (matchesAt(lines, hunk, i)) {
@@ -305,6 +310,7 @@ function findHunkMatches(lines: string[], hunk: Hunk): number[] {
 }
 
 function applyHunk(lines: string[], hunk: Hunk, start: number): string[] {
+  // Apply a single hunk at a specific offset.
   const out: string[] = [];
   out.push(...lines.slice(0, start));
   let pos = start;
@@ -323,6 +329,7 @@ function applyHunk(lines: string[], hunk: Hunk, start: number): string[] {
 }
 
 function applyUpdateDiff(input: string, hunks: Hunk[]): ApplyResult {
+  // Updates require at least one context line to avoid ambiguous matches.
   let lines = input.split("\n");
   for (const hunk of hunks) {
     const hasContext = hunk.lines.some((line) => line.kind === " ");
@@ -365,6 +372,7 @@ function applyUpdateDiff(input: string, hunks: Hunk[]): ApplyResult {
 }
 
 function buildCreateContent(hunks: Hunk[]): ApplyResult {
+  // create_file diffs may only add lines.
   const out: string[] = [];
   for (const hunk of hunks) {
     for (const line of hunk.lines) {
@@ -392,6 +400,7 @@ function normalizePath(relPath: string): string {
 }
 
 function isDeniedPath(relPath: string): { ok: true } | { ok: false; message: string } {
+  // Block sensitive paths such as .git and env files.
   const baseName = path.posix.basename(relPath);
   if (relPath.startsWith(".git/") || relPath === ".git") {
     return { ok: false, message: "Refusing to edit .git directory" };
@@ -405,6 +414,7 @@ function isDeniedPath(relPath: string): { ok: true } | { ok: false; message: str
 export async function applyPatchTool(
   input: ApplyPatchArgs
 ): Promise<ToolResult<ApplyPatchResult>> {
+  // Plan all operations first, then write temp files and commit atomically.
   const limits = {
     maxPatchBytes: input.limits?.maxPatchBytes ?? 2 * 1024 * 1024,
     maxFileBytes: input.limits?.maxFileBytes ?? 2 * 1024 * 1024
@@ -459,6 +469,7 @@ export async function applyPatchTool(
     }
 
     if (operation.type === "delete_file") {
+      // Deletions are staged and performed after writes succeed.
       if (operation.diff) {
         return { ok: false, error: { code: "INVALID_ARGS", message: "delete_file must not include diff" } };
       }
@@ -580,6 +591,7 @@ export async function applyPatchTool(
   }
 
   try {
+    // Write temp files first to avoid partial updates.
     for (const w of plannedWrites) {
       await fs.mkdir(w.dirAbs, { recursive: true });
       await fs.writeFile(w.tmpAbs, w.content, "utf8");
@@ -593,6 +605,7 @@ export async function applyPatchTool(
   }
 
   try {
+    // Commit temp files to their final destinations.
     for (const w of plannedWrites) {
       await fs.rename(w.tmpAbs, w.absPath);
     }
@@ -605,6 +618,7 @@ export async function applyPatchTool(
   }
 
   for (const d of plannedDeletes) {
+    // Apply deletions last to keep changesets consistent.
     try {
       await fs.rm(d.absPath);
     } catch (error) {

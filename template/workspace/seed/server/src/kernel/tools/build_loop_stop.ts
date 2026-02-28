@@ -1,6 +1,7 @@
 import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Stub tool spec: build loop stop is injected only during build loops.
 export type BuildLoopStopArgs = {
   reason: string;
 };
@@ -52,6 +53,7 @@ export const spec: ToolSpec = {
 };
 
 export function buildLoopStopTool(): ToolResult<BuildLoopStopResult> {
+  // Outside a build-loop context, this tool is rejected.
   return {
     ok: false,
     error: {

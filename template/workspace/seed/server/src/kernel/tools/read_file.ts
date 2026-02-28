@@ -5,6 +5,7 @@ import { ensureParentDirInsideRoot, resolveWithinRoot } from "./path_safety.js";
 import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Tool to read a single UTF-8 file with safety checks and hashing.
 export type ReadFileArgs = {
   root: string;
   path: string;
@@ -81,6 +82,7 @@ export async function readFileTool(args: ReadFileArgs): Promise<ToolResult<ReadF
     const rootAbs = path.resolve(args.root);
     const fileAbs = resolveWithinRoot(rootAbs, args.path);
 
+    // Ensure the target stays within the root (no traversal or symlink escape).
     await ensureParentDirInsideRoot(rootAbs, fileAbs);
 
     const buf = await fs.readFile(fileAbs);
@@ -89,6 +91,7 @@ export async function readFileTool(args: ReadFileArgs): Promise<ToolResult<ReadF
     const sliced = buf.slice(0, maxBytes);
     const truncated = totalBytes > maxBytes;
 
+    // Reject binary files by detecting NUL bytes in the read slice.
     const nulIndex = sliced.indexOf(0);
     if (nulIndex !== -1) {
       return {
@@ -101,12 +104,14 @@ export async function readFileTool(args: ReadFileArgs): Promise<ToolResult<ReadF
     let content = sliced.toString("utf-8");
 
     if (args.range?.startLine || args.range?.endLine) {
+      // Line ranges apply to the truncated content to keep bounds safe.
       const lines = content.split(/\r?\n/);
       const start = Math.max(1, args.range.startLine ?? 1);
       const end = Math.min(lines.length, args.range.endLine ?? lines.length);
       content = lines.slice(start - 1, end).join("\n");
     }
 
+    // Hash the full normalized content for edit verification.
     const sha256 = crypto.createHash("sha256").update(fullText.replace(/\r\n/g, "\n"), "utf8").digest("hex");
 
     return {

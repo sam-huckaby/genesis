@@ -4,6 +4,7 @@ import { resolveWithinRoot } from "./path_safety.js";
 import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Tool to stat a single path inside the allowed root.
 export type StatArgs = {
   root: string;
   path: string;
@@ -61,6 +62,7 @@ export async function statPath(args: StatArgs): Promise<ToolResult<StatResult>> 
     const abs = resolveWithinRoot(rootAbs, args.path);
     const lst = await fs.lstat(abs);
 
+    // Normalize platform-specific stat info to a small type enum.
     const type = lst.isFile()
       ? "file"
       : lst.isDirectory()

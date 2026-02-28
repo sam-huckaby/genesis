@@ -5,6 +5,7 @@ import { resolvePathWithinRoot } from "./safe_path.js";
 import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Apply unified diffs with safety checks and detailed error reporting.
 type PatchErrorCode =
   | "BINARY_PATCH_NOT_SUPPORTED"
   | "MALFORMED_DIFF"
@@ -132,6 +133,7 @@ function sha256(text: string) {
 }
 
 function stripPrefix(p: string) {
+  // Remove git diff prefixes to get relative paths.
   if (p === "/dev/null") {
     return p;
   }
@@ -139,6 +141,7 @@ function stripPrefix(p: string) {
 }
 
 function parseHunkHeader(line: string) {
+  // Parse unified diff hunk header: @@ -a,b +c,d @@
   const m = line.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/);
   if (!m) {
     return null;
@@ -154,6 +157,7 @@ function parseHunkHeader(line: string) {
 function parseUnifiedDiff(
   patchText: string
 ): FilePatch[] | { error: PatchErrorCode; details?: unknown } {
+  // Parses a unified diff into per-file hunks. No rename/delete support.
   if (patchText.includes("GIT binary patch")) {
     return { error: "BINARY_PATCH_NOT_SUPPORTED" };
   }
@@ -225,6 +229,7 @@ type SupportErrorCode = "DELETE_NOT_SUPPORTED" | "RENAME_NOT_SUPPORTED";
 function assertSupportedFilePatch(fp: FilePatch):
   | { ok: true }
   | { ok: false; code: SupportErrorCode; message: string } {
+  // Only allow create and modify; delete/rename are explicitly disallowed.
   const isCreate = fp.oldPath === "/dev/null" && fp.newPath !== "/dev/null";
   const isDelete = fp.newPath === "/dev/null" && fp.oldPath !== "/dev/null";
   const isModify =
@@ -244,6 +249,7 @@ function assertSupportedFilePatch(fp: FilePatch):
 }
 
 function applyFilePatchToText(before: string, fp: FilePatch) {
+  // Apply hunks sequentially using exact context matching.
   let lines = before.split("\n");
   let insertions = 0;
   let deletions = 0;
@@ -298,6 +304,7 @@ function applyFilePatchToText(before: string, fp: FilePatch) {
 }
 
 async function readUtf8IfExists(p: string, maxBytes: number) {
+  // Read file if present, enforce size limit, normalize line endings.
   try {
     const buf = await fs.readFile(p);
     if (buf.byteLength > maxBytes) {
@@ -331,6 +338,7 @@ type PlannedWrite = {
 export async function applyUnifiedDiff(
   input: ApplyPatchArgs
 ): Promise<ToolResult<ApplyPatchResult>> {
+  // Plan writes first, then atomically swap temp files into place.
   const limits = {
     maxFiles: input.limits?.maxFiles ?? 50,
     maxPatchBytes: input.limits?.maxPatchBytes ?? 2 * 1024 * 1024,
@@ -528,6 +536,7 @@ export async function applyUnifiedDiff(
   }
 
   try {
+    // Write all temp files before committing to avoid partial edits.
     for (const w of planned) {
       await fs.mkdir(w.dirAbs, { recursive: true });
       await fs.writeFile(w.tmpAbs, w.afterText, "utf8");
@@ -541,6 +550,7 @@ export async function applyUnifiedDiff(
   }
 
   try {
+    // Replace originals with temp files.
     for (const w of planned) {
       await fs.rename(w.tmpAbs, w.absPath);
     }

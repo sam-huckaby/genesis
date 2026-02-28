@@ -8,6 +8,9 @@ import { runSpec } from "./runner.js";
 import { runProjectChatLlm } from "./project_chat.js";
 import { recordEvent } from "../storage/events.js";
 
+// Build loop: repeatedly run a project's build command, record results, and
+// invoke the LLM tool loop to apply minimal fixes until success or stop.
+
 export type BuildLoopProject = {
   id: number;
   name: string;
@@ -46,6 +49,7 @@ function createTraceLogger(
   logPath: string,
   baseFields: Record<string, unknown>
 ): (event: string, details?: Record<string, unknown>, iteration?: number, durationMs?: number) => Promise<void> {
+  // Lazy-create the log directory and append JSONL entries for observability.
   let dirReady = false;
   return async (event, details, iteration, durationMs) => {
     try {
@@ -75,6 +79,7 @@ function createTraceLogger(
 }
 
 export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuildLoopResponse> {
+  // Persist loop metadata first so external observers can track progress.
   // Create the timestamp for the beginning of the loop
   const loopNow = new Date().toISOString();
   // Add this build loop entry to the database
@@ -229,6 +234,7 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
         modelOverride: params.model,
         systemPromptOverride: buildLoopPrompt(params.project.rootPathRel),
         toolExecutor: async (call): Promise<ToolResult<unknown> | null> => {
+          // Inline tool handler for build-loop-only tools to enforce scoping.
           const toolName = normalizeToolName(call.function.name);
           const rawArgs = call.function.arguments;
           let args: Record<string, unknown> = {};
@@ -261,6 +267,7 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
           );
 
           if (toolName === "build_loop_stop") {
+            // Tool-based stop lets the model block with an explicit reason.
             const reason = typeof args.reason === "string" ? args.reason.trim() : "";
             if (!reason) {
               await trace("tool.error", { toolName, code: "INVALID_ARGS" }, iteration);
@@ -276,6 +283,7 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
           }
 
           if (toolName === "get_build_loops") {
+            // Only allow the active project name for safety and determinism.
             const requestedProject =
               typeof args.projectName === "string" ? args.projectName.trim() : "";
             if (!requestedProject || requestedProject !== params.project.name) {
@@ -315,6 +323,7 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
           }
 
           if (toolName === "get_build_loop_detail") {
+            // Validate project name and loop id before returning full history.
             const requestedProject =
               typeof args.projectName === "string" ? args.projectName.trim() : "";
             const loopIdArg = typeof args.loopId === "number" ? args.loopId : NaN;
@@ -424,6 +433,7 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
     await trace("iteration.recorded", { exitCode: result.exitCode }, iteration);
 
     if (stopRequested) {
+      // Early exit: model declared it cannot proceed.
       updateLoopStatus.run("blocked", stopReason, new Date().toISOString(), loopId);
       await trace("loop.blocked", { reason: stopReason }, iteration);
       recordEvent(

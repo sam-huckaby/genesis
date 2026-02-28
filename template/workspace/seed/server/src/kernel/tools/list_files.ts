@@ -5,6 +5,7 @@ import { DEFAULT_LIST_DENY_GLOBS } from "./path_safety.js";
 import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Tool to enumerate files safely with deny-list defaults.
 export type ListFilesArgs = {
   root: string;
   globs?: string[];
@@ -85,6 +86,7 @@ export const spec: ToolSpec = {
 };
 
 function isExplicitlyAllowed(globs: string[] | undefined, token: string): boolean {
+  // Detect explicit inclusion of otherwise-denied folders.
   if (!globs) {
     return false;
   }
@@ -109,6 +111,7 @@ export async function listFiles(args: ListFilesArgs): Promise<ToolResult<ListFil
     const baseGlobs = args.globs?.length ? args.globs : ["**/*"];
     let deny = [...DEFAULT_LIST_DENY_GLOBS];
 
+    // Allow explicit opt-in for commonly denied paths.
     if (isExplicitlyAllowed(args.globs, ".git")) {
       deny = deny.filter((pattern) => !pattern.includes(".git"));
     }

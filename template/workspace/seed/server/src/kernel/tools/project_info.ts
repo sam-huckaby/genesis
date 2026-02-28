@@ -3,6 +3,7 @@ import path from "node:path";
 import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Lightweight project introspection for chat planning and tool hints.
 export type ProjectInfoArgs = { root: string };
 
 export type ProjectInfoResult = {
@@ -84,6 +85,7 @@ export const spec: ToolSpec = {
 };
 
 async function exists(p: string): Promise<boolean> {
+  // Convenience check for optional project files.
   try {
     await fs.access(p);
     return true;
@@ -96,6 +98,7 @@ export async function projectInfo(args: ProjectInfoArgs): Promise<ToolResult<Pro
   try {
     const rootAbs = path.resolve(args.root);
 
+    // Gather key files and lockfiles to infer package manager.
     const keyFiles: string[] = [];
     const pkgPath = path.join(rootAbs, "package.json");
     const hasPkg = await exists(pkgPath);
@@ -132,6 +135,7 @@ export async function projectInfo(args: ProjectInfoArgs): Promise<ToolResult<Pro
       };
       const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
 
+      // Map dependencies to coarse framework/language labels.
       const pushIf = (key: string, name: string) => {
         if (deps[key]) {
           frameworks.push(name);

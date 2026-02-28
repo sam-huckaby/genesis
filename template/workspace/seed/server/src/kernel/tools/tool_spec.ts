@@ -1,3 +1,4 @@
+// Shared type definitions for tool contracts and schemas.
 export type JsonSchema = Record<string, unknown>;
 
 export type ToolExample = {

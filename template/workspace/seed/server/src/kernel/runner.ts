@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { resolveWorkspacePath } from "../util/paths.js";
 import type { RunSpec } from "../adapters/adapter.types.js";
 
+// Minimal process runner used by build and tool flows.
 export type RunResult = {
   exitCode: number;
   stdout: string;
@@ -12,6 +13,7 @@ export async function runSpec(
   workspaceDir: string,
   spec: RunSpec
 ): Promise<RunResult> {
+  // Resolve cwd relative to the workspace and execute with merged env.
   const cwd = resolveWorkspacePath(workspaceDir, spec.cwdRel);
 
   return new Promise((resolve) => {
@@ -22,6 +24,7 @@ export async function runSpec(
     });
 
     if (spec.stdin && child.stdin) {
+      // Some adapters rely on stdin for non-interactive commands.
       child.stdin.write(spec.stdin);
       child.stdin.end();
     }

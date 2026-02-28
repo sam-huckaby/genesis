@@ -1,6 +1,7 @@
 import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Stub tool spec: build loop start is only valid in a build-loop context.
 export type BuildLoopStartArgs = {
   maxIterations?: number;
   modelOverride?: string;
@@ -66,6 +67,7 @@ export const spec: ToolSpec = {
 };
 
 export function buildLoopStartTool(): ToolResult<BuildLoopStartResult> {
+  // Caller must use the build-loop endpoint instead of this tool directly.
   return {
     ok: false,
     error: {

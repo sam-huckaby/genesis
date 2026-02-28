@@ -2,6 +2,7 @@ import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 import { searchTools } from "../tool_registry.js";
 
+// Tool wrapper for registry search (name/description/tags).
 export type SearchToolsArgs = {
   query: string;
   limit?: number;
@@ -79,6 +80,7 @@ export async function searchToolsTool(
   args: SearchToolsArgs
 ): Promise<ToolResult<SearchToolsResult>> {
   try {
+    // Clamp limit to keep responses small and predictable.
     const rawLimit = args.limit ?? 10;
     const topK = Math.max(1, Math.min(20, Math.floor(rawLimit)));
     const result = searchTools(workspaceDir, args.query, topK);

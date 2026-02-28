@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 
+// Resolve a relative path within a root, with detailed error codes.
 export type SafePathResult =
   | { ok: true; absPath: string }
   | {
@@ -15,18 +16,22 @@ export type SafePathResult =
     };
 
 function isWindowsAbs(p: string) {
+  // Accept both drive-letter and UNC path syntaxes.
   return /^[a-zA-Z]:[\\/]/.test(p) || /^\\\\/.test(p);
 }
 
 function normalizeRel(p: string) {
+  // Normalize to POSIX separators to simplify traversal checks.
   return path.posix.normalize(p.replaceAll("\\", "/"));
 }
 
 function hasDotDot(normRel: string) {
+  // Detect any parent directory traversal sequences.
   return normRel === ".." || normRel.startsWith("../") || normRel.includes("/../");
 }
 
 async function pathExists(p: string) {
+  // Non-throwing existence check.
   try {
     await fs.stat(p);
     return true;
@@ -41,6 +46,7 @@ export async function resolvePathWithinRoot(opts: {
 }): Promise<SafePathResult> {
   const { allowedRootAbs, relativePath } = opts;
 
+  // Absolute paths are rejected (including Windows-style paths).
   if (path.isAbsolute(relativePath) || isWindowsAbs(relativePath)) {
     return { ok: false, code: "PATH_ABSOLUTE", details: { relativePath } };
   }
@@ -53,6 +59,7 @@ export async function resolvePathWithinRoot(opts: {
   const candidateAbs = path.resolve(allowedRootAbs, normRel);
 
   let ancestor = candidateAbs;
+  // Walk up to find an existing ancestor for realpath checks.
   while (!(await pathExists(ancestor))) {
     const parent = path.dirname(ancestor);
     if (parent === ancestor) {

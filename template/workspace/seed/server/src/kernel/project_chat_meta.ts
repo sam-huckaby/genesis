@@ -1,3 +1,4 @@
+// Utility helpers for compact tool-call metadata (used in UI/logs).
 type ToolCall = {
   function: { name: string; arguments: string };
 };
@@ -7,6 +8,7 @@ function normalizeToolName(name: string): string {
 }
 
 export function buildToolMeta(call: ToolCall): string {
+  // Keep metadata short and human-readable for quick inspection.
   const toolName = normalizeToolName(call.function.name);
   let args: Record<string, unknown> = {};
   try {

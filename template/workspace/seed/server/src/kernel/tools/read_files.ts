@@ -2,6 +2,7 @@ import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 import { readFileTool } from "./read_file.js";
 
+// Tool to read multiple files with per-file and total byte limits.
 export type ReadFilesArgs = {
   root: string;
   paths: string[];
@@ -93,6 +94,7 @@ export async function readFiles(args: ReadFilesArgs): Promise<ToolResult<ReadFil
     const out: ReadFilesResult["files"] = [];
 
     for (const p of args.paths) {
+      // Enforce total byte limit across the batch.
       if (total >= maxTotal) {
         out.push({ path: p, error: { code: "TOO_LARGE", message: "Batch byte limit reached" } });
         continue;

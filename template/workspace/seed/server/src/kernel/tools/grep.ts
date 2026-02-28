@@ -4,6 +4,7 @@ import path from "node:path";
 import type { ToolResult } from "./tool_result.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Tool wrapper around ripgrep (rg) with JSON output parsing.
 export type GrepArgs = {
   root: string;
   query: string;
@@ -85,6 +86,7 @@ export const spec: ToolSpec = {
 };
 
 async function hasRipgrep(): Promise<boolean> {
+  // Quick availability check to avoid spawning full scans without rg.
   return new Promise((resolve) => {
     const proc = spawn("rg", ["--version"]);
     proc.on("error", () => resolve(false));
@@ -146,6 +148,7 @@ export async function grep(args: GrepArgs): Promise<ToolResult<GrepResult>> {
     }
 
     const matches: GrepResult["matches"] = [];
+    // ripgrep JSON emits one JSON object per line.
     for (const line of stdout.split("\n")) {
       if (!line.trim()) {
         continue;

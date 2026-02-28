@@ -17,6 +17,7 @@ import { spec as getBuildLoopsSpec } from "./get_build_loops.js";
 import { spec as getBuildLoopDetailSpec } from "./get_build_loop_detail.js";
 import type { ToolSpec } from "./tool_spec.js";
 
+// Ordered list of tool specifications exposed to the LLM.
 export const TOOL_SPECS: ToolSpec[] = [
   listFilesSpec,
   readFileSpec,

@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 
+// Shared path safety helpers for filesystem tools.
 export type AbsPath = string;
 
 export const DEFAULT_DENY_GLOBS = [
@@ -25,6 +26,7 @@ export const DEFAULT_LIST_DENY_GLOBS = [
 ];
 
 export async function realpathSafe(p: string): Promise<string> {
+  // Resolve realpath; if the leaf is missing, resolve its parent.
   try {
     return await fs.realpath(p);
   } catch (error) {
@@ -39,6 +41,7 @@ export async function realpathSafe(p: string): Promise<string> {
 }
 
 export function resolveWithinRoot(rootAbs: AbsPath, userPath: string): AbsPath {
+  // Reject absolute paths and traversal outside the allowed root.
   if (path.isAbsolute(userPath)) {
     throw new Error(`Absolute paths forbidden: ${userPath}`);
   }
@@ -54,6 +57,7 @@ export async function ensureParentDirInsideRoot(
   rootAbs: AbsPath,
   targetAbs: AbsPath
 ): Promise<void> {
+  // Prevent symlink escapes by comparing realpaths of parent and root.
   const parent = path.dirname(targetAbs);
   const parentReal = await realpathSafe(parent);
   const rootReal = await fs.realpath(rootAbs);
