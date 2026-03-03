@@ -566,6 +566,10 @@ mark {
   grid-template-rows: auto auto;
   align-items: start;
   justify-items: start;
+
+  /* Center the grid correctly */
+  max-width: 910px;
+  justify-self: center;
 }
 
 .onboarding-grid.onboarding-grid-projects .onboarding-item-api {

@@ -7,6 +7,7 @@ import type { ToolResult } from "./tools/tool_result.js";
 import { runSpec } from "./runner.js";
 import { runProjectChatLlm } from "./project_chat.js";
 import { recordEvent } from "../storage/events.js";
+import type { OpenAiCredential } from "./openai_auth.js";
 
 // Build loop: repeatedly run a project's build command, record results, and
 // invoke the LLM tool loop to apply minimal fixes until success or stop.
@@ -20,7 +21,7 @@ export type BuildLoopProject = {
 export type BuildLoopParams = {
   db: Database.Database;
   workspaceDir: string;
-  apiKey: string;
+  auth: OpenAiCredential;
   project: BuildLoopProject;
   buildCommand: RunSpec;
   maxIterations: number;
@@ -223,7 +224,7 @@ export async function runBuildLoop(params: BuildLoopParams): Promise<ProjectBuil
       const llmStarted = Date.now();
       await trace("llm.start", undefined, iteration);
       const summary = await runProjectChatLlm({
-        apiKey: params.apiKey,
+        auth: params.auth,
         workspaceDir: params.workspaceDir,
         projectRootAbs,
         projectRootRel: params.project.rootPathRel,

@@ -8,6 +8,7 @@ import { runSpec } from "../kernel/runner.js";
 import { applyPatchSet } from "../kernel/patch.js";
 import { runBuildLoop } from "../kernel/build_loop.js";
 import { recordEvent } from "../storage/events.js";
+import { resolveOpenAiCredential } from "../kernel/openai_auth.js";
 import type {
   CreateProjectRequest,
   CreateProjectResponse,
@@ -570,11 +571,10 @@ export function registerProjectRoutes(
         return response;
       }
 
-      const secretsPath = path.join(context.workspaceDir, "state", "secrets", "openai.json");
-      if (!fs.existsSync(secretsPath)) {
-        return reply.status(400).send({ ok: false, error: "Missing OpenAI API key" });
+      const auth = await resolveOpenAiCredential(context.workspaceDir);
+      if (!auth) {
+        return reply.status(400).send({ ok: false, error: "Missing OpenAI authentication" });
       }
-      const apiKey = JSON.parse(fs.readFileSync(secretsPath, "utf8")).apiKey as string;
 
       const defaultIterations = 20;
       const requestedIterations = typeof body?.maxIterations === "number"
@@ -600,7 +600,7 @@ export function registerProjectRoutes(
       const response = await runBuildLoop({
         db: context.db,
         workspaceDir: context.workspaceDir,
-        apiKey,
+        auth,
         project: {
           id: project.id,
           name,

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { recordEvent } from "../storage/events.js";
 import { runDiscoveryLlm } from "../kernel/llm.js";
+import { resolveOpenAiCredential } from "../kernel/openai_auth.js";
 import type {
   DiscoveryCompleteRequest,
   DiscoveryMessageRequest,
@@ -98,11 +99,10 @@ export function registerDiscoveryRoutes(
       );
       stmt.run(body.discoveryId, body.role, body.content, new Date().toISOString());
 
-      const secretsPath = path.join(context.workspaceDir, "state", "secrets", "openai.json");
-      if (!fs.existsSync(secretsPath)) {
-        return reply.status(400).send({ ok: false, error: "Missing OpenAI API key" });
+      const auth = await resolveOpenAiCredential(context.workspaceDir);
+      if (!auth) {
+        return reply.status(400).send({ ok: false, error: "Missing OpenAI authentication" });
       }
-      const apiKey = JSON.parse(fs.readFileSync(secretsPath, "utf8")).apiKey as string;
 
       const transcript = context.db
         .prepare(
@@ -114,7 +114,7 @@ export function registerDiscoveryRoutes(
       fs.mkdirSync(logDir, { recursive: true });
       const logPath = path.join(logDir, "llm-debug.log");
 
-      const llmResult = await runDiscoveryLlm(apiKey, transcript, {
+      const llmResult = await runDiscoveryLlm(auth, transcript, {
         logRaw: (raw) => {
           fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${raw}\n\n`);
         }

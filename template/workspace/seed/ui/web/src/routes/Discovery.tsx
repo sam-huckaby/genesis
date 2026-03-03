@@ -102,7 +102,7 @@ export default function Discovery() {
       setIsThinking(false);
     } catch {
       setIsThinking(false);
-      setMessage("Discovery request failed. Check API key.");
+      setMessage("Discovery request failed. Check OpenAI authentication.");
     }
   };
 

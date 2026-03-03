@@ -6,26 +6,43 @@ import Button from "../components/Button.js";
 
 type OnboardingState = {
   hasApiKey: boolean;
+  openaiAuth?: {
+    hasApiKey: boolean;
+    hasOAuth: boolean;
+    mode: "api_key" | "oauth" | null;
+  };
   projects: { name: string; type: string; root_path_rel: string }[];
+};
+
+type OAuthStatusResponse = {
+  status: "idle" | "awaiting_callback" | "processing" | "success" | "error";
+  message?: string;
 };
 
 export default function Onboarding() {
   const [state, setState] = useState<OnboardingState | null>(null);
   const [apiKey, setApiKey] = useState("");
+  const [oauthInput, setOauthInput] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [showKeyForm, setShowKeyForm] = useState(true);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+
+  const refreshState = async () => {
+    const data = await apiGet<OnboardingState>("/api/onboarding/state");
+    setState(data);
+    if (data.openaiAuth?.mode) {
+      setShowKeyForm(false);
+    }
+  };
 
   useEffect(() => {
-    apiGet<OnboardingState>("/api/onboarding/state")
-      .then((data) => {
-        setState(data);
-        setShowKeyForm(!data.hasApiKey);
-      })
+    refreshState()
       .catch(() => setState(null));
   }, []);
 
-  const hasApiKey = state?.hasApiKey ?? false;
+  const hasOpenAiAuth = state?.hasApiKey ?? false;
   const hasProjects = (state?.projects ?? []).length > 0;
+  const authMode = state?.openaiAuth?.mode ?? null;
 
   const projectBadge = useMemo(
     () => ({
@@ -42,37 +59,137 @@ export default function Onboarding() {
       return;
     }
     try {
+      setMessage(null);
       await apiPost("/api/onboarding/api-key", { provider: "openai", apiKey });
       setShowKeyForm(false);
-      const updated = await apiGet<OnboardingState>("/api/onboarding/state");
-      setState(updated);
-    } catch (error) {
+      await refreshState();
+    } catch {
       setMessage("Failed to save API key.");
     }
   };
 
-  if (!hasApiKey) {
+  const startOAuth = async () => {
+    setIsAuthenticating(true);
+    setMessage(null);
+    try {
+      const response = await apiPost<{ ok: boolean; url: string }>(
+        "/api/onboarding/openai/oauth/start",
+        {}
+      );
+      const popup = window.open(response.url, "seed-openai-oauth", "width=560,height=720");
+      if (!popup) {
+        setIsAuthenticating(false);
+        setMessage("Popup blocked. Allow popups, then try Auth with OpenAI again.");
+        return;
+      }
+
+      const startedAt = Date.now();
+      const pollInterval = window.setInterval(() => {
+        apiGet<OAuthStatusResponse>("/api/onboarding/openai/oauth/status")
+          .then(async (status) => {
+            if (status.status === "success") {
+              window.clearInterval(pollInterval);
+              setIsAuthenticating(false);
+              await refreshState();
+              setShowKeyForm(false);
+              return;
+            }
+
+            if (status.status === "error") {
+              window.clearInterval(pollInterval);
+              setIsAuthenticating(false);
+              setMessage(status.message ?? "OpenAI auth failed.");
+              return;
+            }
+
+            if (Date.now() - startedAt > 2 * 60 * 1000) {
+              window.clearInterval(pollInterval);
+              setIsAuthenticating(false);
+              setMessage("OpenAI auth timed out. Try again or paste the callback URL manually.");
+            }
+          })
+          .catch(() => {
+            window.clearInterval(pollInterval);
+            setIsAuthenticating(false);
+            setMessage("Failed to verify OpenAI auth status.");
+          });
+      }, 1500);
+    } catch {
+      setIsAuthenticating(false);
+      setMessage("Failed to start OpenAI auth.");
+    }
+  };
+
+  const completeOAuthManually = async () => {
+    if (!oauthInput.trim()) {
+      setMessage("Paste the OAuth callback URL first.");
+      return;
+    }
+    setIsAuthenticating(true);
+    setMessage(null);
+    try {
+      await apiPost("/api/onboarding/openai/oauth/manual", { input: oauthInput.trim() });
+      setOauthInput("");
+      await refreshState();
+      setShowKeyForm(false);
+    } catch {
+      setMessage("Manual OpenAI auth failed.");
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  if (!hasOpenAiAuth) {
     return (
       <section className="onboarding onboarding-centered">
         <Card
-          title="Add API Key"
+          title="Auth with OpenAI"
           footer={
-            <Button type="button" onClick={saveApiKey}>
-              Save key
-            </Button>
+            <div className="card-actions">
+              <Button type="button" onClick={startOAuth} disabled={isAuthenticating}>
+                {isAuthenticating ? "Authorizing..." : "Auth with OpenAI"}
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => setShowKeyForm(!showKeyForm)}>
+                {showKeyForm ? "Hide API key" : "Use API key instead"}
+              </Button>
+            </div>
           }
         >
           <p className="muted">
-            This is an AI-driven workspace and requires an API key to continue.
+            Connect with your ChatGPT subscription, or paste an OpenAI API key as fallback.
           </p>
-          <input
-            type="password"
-            placeholder="OpenAI API key"
-            value={apiKey}
-            onChange={(event: ChangeEvent<HTMLInputElement>) =>
-              setApiKey(event.target.value)
-            }
-          />
+          {showKeyForm ? (
+            <div>
+              <input
+                type="password"
+                placeholder="OpenAI API key"
+                value={apiKey}
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                  setApiKey(event.target.value)
+                }
+              />
+              <div className="card-actions" style={{ marginTop: 8 }}>
+                <Button type="button" onClick={saveApiKey}>
+                  Save key
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          <div style={{ marginTop: 10 }}>
+            <input
+              type="text"
+              placeholder="Paste OAuth callback URL"
+              value={oauthInput}
+              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                setOauthInput(event.target.value)
+              }
+            />
+            <div className="card-actions" style={{ marginTop: 8 }}>
+              <Button type="button" variant="tertiary" onClick={completeOAuthManually}>
+                Complete manual auth
+              </Button>
+            </div>
+          </div>
           {message ? <p className="error-indicator">{message}</p> : null}
         </Card>
       </section>
@@ -99,38 +216,43 @@ export default function Onboarding() {
       >
         <div className="onboarding-item onboarding-item-api">
           <Card
-            title="API key"
+            title="OpenAI auth"
             headerMeta={
-              state?.hasApiKey ? (
+              hasOpenAiAuth ? (
                 <span className="status-pill success">Installed</span>
               ) : (
                 <span className="status-pill">Needed</span>
               )
             }
             footer={
-              showKeyForm ? (
+              !showKeyForm ? (
+                <div className="card-actions">
+                  <Button type="button" onClick={startOAuth} disabled={isAuthenticating}>
+                    {isAuthenticating ? "Authorizing..." : "Auth with OpenAI"}
+                  </Button>
+                  <Button type="button" variant="secondary" onClick={() => setShowKeyForm(true)}>
+                    Use API key
+                  </Button>
+                </div>
+              ) : (
                 <div className="card-actions">
                   <Button type="button" onClick={saveApiKey}>
                     Save key
                   </Button>
-                  {state?.hasApiKey ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => setShowKeyForm(false)}
-                    >
-                      Cancel
-                    </Button>
-                  ) : null}
+                  <Button type="button" variant="secondary" onClick={() => setShowKeyForm(false)}>
+                    Cancel
+                  </Button>
                 </div>
-              ) : (
-                <Button type="button" variant="tertiary" onClick={() => setShowKeyForm(true)}>
-                  Install new key
-                </Button>
               )
             }
           >
-            <p className="muted">Required for discovery and generation.</p>
+            <p className="muted">
+              Required for discovery and generation. Current method: {authMode === "oauth"
+                ? "OpenAI OAuth"
+                : authMode === "api_key"
+                  ? "API key"
+                  : "Not configured"}
+            </p>
             {showKeyForm ? (
               <div>
                 <input
@@ -141,6 +263,20 @@ export default function Onboarding() {
                     setApiKey(event.target.value)
                   }
                 />
+                <input
+                  type="text"
+                  placeholder="Paste OAuth callback URL"
+                  value={oauthInput}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                    setOauthInput(event.target.value)
+                  }
+                  style={{ marginTop: 8 }}
+                />
+                <div className="card-actions" style={{ marginTop: 8 }}>
+                  <Button type="button" variant="tertiary" onClick={completeOAuthManually}>
+                    Complete manual auth
+                  </Button>
+                </div>
               </div>
             ) : null}
           </Card>

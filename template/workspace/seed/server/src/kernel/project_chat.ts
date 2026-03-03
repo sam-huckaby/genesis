@@ -21,6 +21,7 @@ import { getBuildLoopsTool } from "./tools/get_build_loops.js";
 import { getBuildLoopDetailTool } from "./tools/get_build_loop_detail.js";
 import { buildToolMeta } from "./project_chat_meta.js";
 import type { ToolResult } from "./tools/tool_result.js";
+import type { OpenAiCredential } from "./openai_auth.js";
 
 // Main LLM chat loop used for both planning and build-fix modes.
 type ChatMessage = {
@@ -99,23 +100,81 @@ function buildSystemPrompt(projectRootRel: string, mode: ChatMode): string {
 }
 
 async function callOpenAi(
-  apiKey: string,
+  credential: OpenAiCredential,
   messages: OpenAiMessage[],
   tools: typeof TOOL_DEFS,
-  model: string
+  model: string,
+  signal?: AbortSignal
 ): Promise<{ message: OpenAiMessage; toolCalls?: ToolCall[]; raw: string }> {
   // Low-level call for a single chat completion turn.
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  if (credential.type === "api_key") {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${credential.apiKey}`
+      },
+      signal,
+      body: JSON.stringify({
+        model,
+        messages,
+        tools,
+        temperature: 0.2
+      })
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`LLM request failed: ${res.status} ${text}`);
+    }
+
+    const raw = await res.text();
+    const data = JSON.parse(raw) as {
+      choices: { message: OpenAiMessage }[];
+    };
+    const message = data.choices?.[0]?.message;
+    if (!message) {
+      throw new Error("LLM response missing message");
+    }
+    return { message, toolCalls: message.tool_calls, raw };
+  }
+
+  const codexTools = tools.map((tool) => ({
+    type: "function",
+    name: tool.function.name,
+    description: tool.function.description,
+    parameters: tool.function.parameters
+  }));
+
+  const instructions =
+    messages.find((message) => message.role === "system")?.content ??
+    "You are a coding assistant.";
+  const input = toCodexInput(messages);
+  const res = await fetch("https://chatgpt.com/backend-api/codex/responses", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
+      Authorization: `Bearer ${credential.accessToken}`,
+      "OpenAI-Beta": "responses=experimental",
+      originator: "codex_cli_rs",
+      "chatgpt-account-id": credential.accountId
     },
+    signal,
     body: JSON.stringify({
       model,
-      messages,
-      tools,
-      temperature: 0.2
+      instructions,
+      input,
+      tools: codexTools,
+      store: false,
+      stream: true,
+      reasoning: {
+        effort: "medium",
+        summary: "auto"
+      },
+      text: {
+        verbosity: "medium"
+      },
+      include: ["reasoning.encrypted_content"]
     })
   });
 
@@ -125,14 +184,143 @@ async function callOpenAi(
   }
 
   const raw = await res.text();
-  const data = JSON.parse(raw) as {
-    choices: { message: OpenAiMessage }[];
+  const data = parseCodexPayload(raw, res.headers.get("content-type") ?? "") as {
+    output?: Array<{
+      type?: string;
+      role?: string;
+      content?: Array<{ text?: string }> | string;
+      id?: string;
+      call_id?: string;
+      name?: string;
+      arguments?: unknown;
+    }>;
   };
-  const message = data.choices?.[0]?.message;
-  if (!message) {
-    throw new Error("LLM response missing message");
+
+  const output = data.output ?? [];
+  const toolCalls: ToolCall[] = output
+    .filter((item) => item.type === "function_call")
+    .map((item, index) => ({
+      id:
+        (typeof item.call_id === "string" && item.call_id) ||
+        (typeof item.id === "string" && item.id) ||
+        `call_${index + 1}`,
+      function: {
+        name: typeof item.name === "string" ? item.name : "",
+        arguments:
+          typeof item.arguments === "string"
+            ? item.arguments
+            : JSON.stringify(item.arguments ?? {})
+      }
+    }))
+    .filter((call) => call.function.name.length > 0);
+
+  const assistantContent = extractAssistantText(output);
+  const message: OpenAiMessage = {
+    role: "assistant",
+    content: assistantContent,
+    ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
+  };
+  return { message, toolCalls: toolCalls.length > 0 ? toolCalls : undefined, raw };
+}
+
+function parseCodexPayload(raw: string, contentType: string): unknown {
+  if (!contentType.includes("text/event-stream")) {
+    try {
+      return JSON.parse(raw) as unknown;
+    } catch {
+      // Some Codex responses are SSE-formatted even when headers are inconsistent.
+    }
   }
-  return { message, toolCalls: message.tool_calls, raw };
+  const lines = raw.split("\n");
+  for (const line of lines) {
+    if (!line.startsWith("data: ")) {
+      continue;
+    }
+    try {
+      const payload = JSON.parse(line.slice(6)) as { type?: string; response?: unknown };
+      if (payload.type === "response.done" || payload.type === "response.completed") {
+        return payload.response ?? {};
+      }
+    } catch {
+      // Ignore malformed SSE chunks.
+    }
+  }
+  throw new Error("LLM response did not contain a final response payload");
+}
+
+function toCodexInput(messages: OpenAiMessage[]): Array<Record<string, unknown>> {
+  const input: Array<Record<string, unknown>> = [];
+  for (const message of messages) {
+    if (message.role === "system") {
+      continue;
+    }
+
+    if (message.role === "tool") {
+      if (!message.tool_call_id) {
+        continue;
+      }
+      input.push({
+        type: "function_call_output",
+        call_id: message.tool_call_id,
+        output: message.content ?? ""
+      });
+      continue;
+    }
+
+    if (message.tool_calls && message.tool_calls.length > 0) {
+      if (message.content && message.content.trim().length > 0) {
+        input.push({
+          type: "message",
+          role: "assistant",
+          content: message.content
+        });
+      }
+      for (const call of message.tool_calls) {
+        input.push({
+          type: "function_call",
+          call_id: call.id,
+          name: call.function.name,
+          arguments: call.function.arguments
+        });
+      }
+      continue;
+    }
+
+    input.push({
+      type: "message",
+      role: message.role,
+      content: message.content ?? ""
+    });
+  }
+  return input;
+}
+
+function extractAssistantText(
+  output: Array<{
+    type?: string;
+    role?: string;
+    content?: Array<{ text?: string }> | string;
+  }>
+): string {
+  const textChunks: string[] = [];
+  for (const item of output) {
+    if (item.type !== "message" || item.role !== "assistant") {
+      continue;
+    }
+    if (typeof item.content === "string") {
+      textChunks.push(item.content);
+      continue;
+    }
+    if (!Array.isArray(item.content)) {
+      continue;
+    }
+    for (const part of item.content) {
+      if (typeof part.text === "string" && part.text.length > 0) {
+        textChunks.push(part.text);
+      }
+    }
+  }
+  return textChunks.join("\n").trim();
 }
 
 function resolveRootArg(
@@ -399,7 +587,7 @@ async function runToolCall(
 }
 
 export async function runProjectChatLlm(params: {
-  apiKey: string;
+  auth: OpenAiCredential;
   workspaceDir: string;
   projectRootAbs: string;
   projectRootRel: string;
@@ -412,6 +600,7 @@ export async function runProjectChatLlm(params: {
   onToolStart?: (payload: ToolStartPayload) => Promise<number> | number;
   onToolEnd?: (payload: ToolEndPayload) => Promise<void> | void;
   toolExecutor?: ToolExecutor;
+  signal?: AbortSignal;
 }): Promise<string> {
   // Core loop: call the LLM, execute tools, and feed results back until final.
   const systemPrompt = params.systemPromptOverride?.trim().length
@@ -429,12 +618,21 @@ export async function runProjectChatLlm(params: {
     typeof params.maxIterations === "number" && Number.isFinite(params.maxIterations)
       ? Math.max(1, Math.floor(params.maxIterations))
       : 100;
+
+  const throwIfAborted = () => {
+    if (params.signal?.aborted) {
+      throw new DOMException("Operation aborted", "AbortError");
+    }
+  };
+
   for (let i = 0; i < maxIterations; i += 1) {
+    throwIfAborted();
     const { message, toolCalls, raw } = await callOpenAi(
-      params.apiKey,
+      params.auth,
       messages,
       tools,
-      model
+      model,
+      params.signal
     );
     if (params.logPath) {
       // Persist raw completion JSON for audit/debug purposes.
@@ -462,6 +660,7 @@ export async function runProjectChatLlm(params: {
       };
 
       for (const call of toolCalls) {
+        throwIfAborted();
         const toolMeta = buildToolMeta(call);
         let toolMessageId: number | null = null;
         if (params.onToolStart) {

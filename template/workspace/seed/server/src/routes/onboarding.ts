@@ -3,6 +3,13 @@ import fs from "node:fs";
 import path from "node:path";
 import type Database from "better-sqlite3";
 import { recordEvent } from "../storage/events.js";
+import {
+  beginOpenAiOAuth,
+  completeOpenAiOAuthFromManualInput,
+  getOpenAiOAuthStatus,
+  getOpenAiAuthSummary,
+  saveOpenAiApiKey
+} from "../kernel/openai_auth.js";
 
 type RouteContext = {
   workspaceDir: string;
@@ -31,9 +38,8 @@ export function registerOnboardingRoutes(
   context: RouteContext
 ) {
   server.get("/api/onboarding/state", async () => {
-    const secretsDir = path.join(context.workspaceDir, "state", "secrets");
-    const apiKeyPath = path.join(secretsDir, "openai.json");
-    const hasApiKey = fs.existsSync(apiKeyPath);
+    const openaiAuth = getOpenAiAuthSummary(context.workspaceDir);
+    const hasApiKey = openaiAuth.mode !== null;
     const config = readSeedConfig(context.workspaceDir);
     const projects = context.db
       .prepare("SELECT name, type, root_path_rel FROM projects ORDER BY id")
@@ -41,6 +47,7 @@ export function registerOnboardingRoutes(
 
     return {
       hasApiKey,
+      openaiAuth,
       projects,
       activeProject: config.activeProject ?? null
     };
@@ -59,14 +66,47 @@ export function registerOnboardingRoutes(
 
       const secretsDir = path.join(context.workspaceDir, "state", "secrets");
       fs.mkdirSync(secretsDir, { recursive: true });
-      const keyPath = path.join(secretsDir, `${provider}.json`);
-      fs.writeFileSync(keyPath, JSON.stringify({ apiKey }, null, 2), {
-        mode: 0o600
-      });
+      if (provider !== "openai") {
+        return reply.status(400).send({ ok: false, error: "Unsupported provider" });
+      }
+      saveOpenAiApiKey(context.workspaceDir, apiKey);
 
       recordEvent(context.db, "onboarding.api_key_set", { provider });
 
       return { ok: true };
+    }
+  );
+
+  server.post(
+    "/api/onboarding/openai/oauth/start",
+    async (_request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { url } = await beginOpenAiOAuth(context.workspaceDir);
+        return { ok: true, url };
+      } catch (error) {
+        return reply.status(400).send({
+          ok: false,
+          error: error instanceof Error ? error.message : "Failed to start OpenAI OAuth"
+        });
+      }
+    }
+  );
+
+  server.get("/api/onboarding/openai/oauth/status", async () => {
+    return getOpenAiOAuthStatus(context.workspaceDir);
+  });
+
+  server.post(
+    "/api/onboarding/openai/oauth/manual",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = request.body as { input?: string };
+      try {
+        await completeOpenAiOAuthFromManualInput(context.workspaceDir, body?.input ?? "");
+        recordEvent(context.db, "onboarding.openai_oauth_set", { mode: "manual" });
+        return { ok: true };
+      } catch (error) {
+        return reply.status(400).send({ ok: false, error: (error as Error).message });
+      }
     }
   );
 }

@@ -26,6 +26,15 @@ type PendingUserMessage = {
   conversationId: number;
 };
 
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
+}
+
 function renderWithHighlights(text: string, selections: Selection[]): ReactNode[] {
   if (!selections.length) {
     return [text];
@@ -64,6 +73,9 @@ export default function Chat() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const pendingUserMessagesRef = useRef<PendingUserMessage[]>([]);
+  const activeRequestRef = useRef<{ controller: AbortController; conversationId: number } | null>(
+    null
+  );
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [sseConnected, setSseConnected] = useState(false);
   const containerRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -344,6 +356,8 @@ export default function Chat() {
     };
     pendingUserMessagesRef.current.push({ tempId, content, conversationId });
     setMessages((prev: ProjectChatMessage[]) => [...prev, tempMessage]);
+    const controller = new AbortController();
+    activeRequestRef.current = { controller, conversationId };
     setIsSending(true);
     setMessage(null);
     setInput("");
@@ -356,7 +370,7 @@ export default function Chat() {
         content,
         mode,
         conversationId
-      });
+      }, { signal: controller.signal });
       setMessages((prev: ProjectChatMessage[]) => {
         const withUser = replaceTempMessage(prev, tempId, res.userMessage);
         if (sseConnected) {
@@ -368,15 +382,38 @@ export default function Chat() {
         (entry: PendingUserMessage) => entry.tempId !== tempId
       );
       loadConversations(conversationId);
-    } catch {
-      setMessage("Chat request failed. Check API key.");
+    } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
+      setMessage("Chat request failed. Check OpenAI authentication.");
       setMessages((prev: ProjectChatMessage[]) => prev.filter((msg) => msg.id !== tempId));
       setInput(content);
       pendingUserMessagesRef.current = pendingUserMessagesRef.current.filter(
         (entry: PendingUserMessage) => entry.tempId !== tempId
       );
     } finally {
+      activeRequestRef.current = null;
       setIsSending(false);
+    }
+  };
+
+  const stopMessage = async () => {
+    if (!project) {
+      return;
+    }
+    const activeRequest = activeRequestRef.current;
+    if (!activeRequest) {
+      return;
+    }
+    activeRequest.controller.abort();
+    setMessage(null);
+    try {
+      await apiPost(`/api/projects/${project}/chat/stop`, {
+        conversationId: activeRequest.conversationId
+      });
+    } catch {
+      setMessage("Could not stop the active chat request.");
     }
   };
 
@@ -589,9 +626,15 @@ export default function Chat() {
                 placeholder="Ask for changes or continue building..."
               />
               <div className="card-actions">
-                <Button type="button" onClick={sendMessage} disabled={isSending}>
-                  {isSending ? "Sending..." : "Send"}
-                </Button>
+                {isSending ? (
+                  <Button type="button" variant="secondary" onClick={stopMessage}>
+                    Stop
+                  </Button>
+                ) : (
+                  <Button type="button" onClick={sendMessage}>
+                    Send
+                  </Button>
+                )}
                 {activeSelection ? (
                   <Button type="button" variant="secondary" onClick={createTaskFromSelection}>
                     Create task from selection

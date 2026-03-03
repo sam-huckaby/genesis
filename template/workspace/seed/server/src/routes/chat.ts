@@ -1,11 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type Database from "better-sqlite3";
-import fs from "node:fs";
 import path from "node:path";
 import { runProjectChatLlm } from "../kernel/project_chat.js";
 import { runBuildLoop } from "../kernel/build_loop.js";
 import { getAdapterByType } from "../adapters/registry.js";
 import type { ToolResult } from "../kernel/tools/tool_result.js";
+import { resolveOpenAiCredential } from "../kernel/openai_auth.js";
 import {
   publishProjectChatEvent,
   subscribeProjectChatEvents
@@ -24,6 +24,60 @@ type ConversationRow = {
   last_message_at: string | null;
   last_viewed_at: string | null;
 };
+
+type ActiveChatRun = {
+  controller: AbortController;
+  stoppedByUser: boolean;
+};
+
+const activeChatRuns = new Map<string, Set<ActiveChatRun>>();
+
+function activeChatRunsKey(projectId: number, conversationId: number): string {
+  return `${projectId}:${conversationId}`;
+}
+
+function registerActiveChatRun(
+  projectId: number,
+  conversationId: number,
+  run: ActiveChatRun
+): () => void {
+  const key = activeChatRunsKey(projectId, conversationId);
+  const set = activeChatRuns.get(key) ?? new Set<ActiveChatRun>();
+  set.add(run);
+  activeChatRuns.set(key, set);
+  return () => {
+    const current = activeChatRuns.get(key);
+    if (!current) {
+      return;
+    }
+    current.delete(run);
+    if (current.size === 0) {
+      activeChatRuns.delete(key);
+    }
+  };
+}
+
+function stopActiveChatRuns(projectId: number, conversationId: number): boolean {
+  const key = activeChatRunsKey(projectId, conversationId);
+  const set = activeChatRuns.get(key);
+  if (!set || set.size === 0) {
+    return false;
+  }
+  set.forEach((run) => {
+    run.stoppedByUser = true;
+    run.controller.abort();
+  });
+  return true;
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
+}
 
 function normalizeToolName(name: string): string {
   return name.replace(/^functions\./, "");
@@ -473,11 +527,10 @@ export function registerProjectChatRoutes(
         }
       });
 
-      const secretsPath = path.join(context.workspaceDir, "state", "secrets", "openai.json");
-      if (!fs.existsSync(secretsPath)) {
-        return reply.status(400).send({ ok: false, error: "Missing OpenAI API key" });
+      const auth = await resolveOpenAiCredential(context.workspaceDir);
+      if (!auth) {
+        return reply.status(400).send({ ok: false, error: "Missing OpenAI authentication" });
       }
-      const apiKey = JSON.parse(fs.readFileSync(secretsPath, "utf8")).apiKey as string;
 
       const rows = context.db
         .prepare(
@@ -494,6 +547,12 @@ export function registerProjectChatRoutes(
         : 100;
 
       let assistantContent = "";
+      let stoppedByUser = false;
+      const activeRun: ActiveChatRun = {
+        controller: new AbortController(),
+        stoppedByUser: false
+      };
+      const unregisterActiveRun = registerActiveChatRun(project.id, conversation.id, activeRun);
       try {
         const logPath = path.join(context.workspaceDir, "state", "logs", "project-chat.log");
         const projectRootAbs = path.join(context.workspaceDir, project.root_path_rel);
@@ -553,7 +612,7 @@ export function registerProjectChatRoutes(
             const result = await runBuildLoop({
               db: context.db,
               workspaceDir: context.workspaceDir,
-              apiKey,
+              auth,
               project: {
                 id: project.id,
                 name,
@@ -671,7 +730,7 @@ export function registerProjectChatRoutes(
           return null;
         };
         assistantContent = await runProjectChatLlm({
-          apiKey,
+          auth,
           workspaceDir: context.workspaceDir,
           projectRootAbs,
           projectRootRel: project.root_path_rel,
@@ -679,6 +738,7 @@ export function registerProjectChatRoutes(
           mode,
           maxIterations,
           logPath,
+          signal: activeRun.controller.signal,
           toolExecutor,
           onToolStart: async ({ toolName, toolMeta, createdAt }) => {
             const toolStmt = context.db.prepare(
@@ -758,14 +818,19 @@ export function registerProjectChatRoutes(
             });
           }
         });
-
       } catch (error) {
-        return reply.status(500).send({
-          ok: false,
-          error: (error as Error).message || "LLM request failed"
-        });
+        stoppedByUser = isAbortError(error) && activeRun.stoppedByUser;
+        if (!stoppedByUser) {
+          return reply.status(500).send({
+            ok: false,
+            error: (error as Error).message || "LLM request failed"
+          });
+        }
+      } finally {
+        unregisterActiveRun();
       }
 
+      const assistantMessageContent = stoppedByUser ? "Stopped by user." : assistantContent;
       const assistantStmt = context.db.prepare(
         "INSERT INTO messages (project_id, conversation_id, role, content, kind, created_at) VALUES (?, ?, ?, ?, ?, ?)"
       );
@@ -774,7 +839,7 @@ export function registerProjectChatRoutes(
         project.id,
         conversation.id,
         "assistant",
-        assistantContent,
+        assistantMessageContent,
         "message",
         assistantNow
       );
@@ -792,7 +857,7 @@ export function registerProjectChatRoutes(
           id: Number(assistantInfo.lastInsertRowid),
           conversationId: conversation.id,
           role: "assistant",
-          content: assistantContent,
+          content: assistantMessageContent,
           createdAt: assistantNow,
           kind: "message"
         }
@@ -811,11 +876,46 @@ export function registerProjectChatRoutes(
           id: Number(assistantInfo.lastInsertRowid),
           conversationId: conversation.id,
           role: "assistant",
-          content: assistantContent,
+          content: assistantMessageContent,
           createdAt: assistantNow,
           kind: "message"
         }
       };
+    }
+  );
+
+  server.post(
+    "/api/projects/:name/chat/stop",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const name = (request.params as { name?: string }).name;
+      const body = request.body as { conversationId?: number } | undefined;
+      if (!name) {
+        return reply.status(400).send({ error: "Missing project name" });
+      }
+
+      const project = getProjectId(context.db, name);
+      if (!project) {
+        return reply.status(404).send({ error: "Project not found" });
+      }
+
+      const providedConversationId =
+        typeof body?.conversationId === "number" && Number.isFinite(body.conversationId)
+          ? body.conversationId
+          : undefined;
+      const conversation = providedConversationId
+        ? (context.db
+            .prepare(
+              "SELECT id, project_id, title, created_at, updated_at, last_message_at, last_viewed_at FROM project_chat_conversations WHERE id = ? AND project_id = ?"
+            )
+            .get(providedConversationId, project.id) as ConversationRow | undefined)
+        : getLastConversation(context.db, project.id);
+
+      if (!conversation) {
+        return reply.status(404).send({ error: "Conversation not found" });
+      }
+
+      const stopped = stopActiveChatRuns(project.id, conversation.id);
+      return { ok: true, stopped };
     }
   );
 
