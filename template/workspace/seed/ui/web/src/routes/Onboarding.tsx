@@ -63,6 +63,7 @@ export default function Onboarding() {
       await apiPost("/api/onboarding/api-key", { provider: "openai", apiKey });
       setShowKeyForm(false);
       await refreshState();
+      window.dispatchEvent(new Event("seed:workspace-nav-updated"));
     } catch {
       setMessage("Failed to save API key.");
     }
@@ -92,6 +93,7 @@ export default function Onboarding() {
               setIsAuthenticating(false);
               await refreshState();
               setShowKeyForm(false);
+              window.dispatchEvent(new Event("seed:workspace-nav-updated"));
               return;
             }
 
@@ -132,6 +134,7 @@ export default function Onboarding() {
       setOauthInput("");
       await refreshState();
       setShowKeyForm(false);
+      window.dispatchEvent(new Event("seed:workspace-nav-updated"));
     } catch {
       setMessage("Manual OpenAI auth failed.");
     } finally {
@@ -305,7 +308,7 @@ export default function Onboarding() {
                       <span className="badge">
                         {projectBadge[project.type as keyof typeof projectBadge] ?? "App"}
                       </span>
-                      <Link to={`/chat?project=${project.name}`}>{project.name}</Link>
+                      <Link to={`/projects/${encodeURIComponent(project.name)}/chat`}>{project.name}</Link>
                     </li>
                   ))}
                 </ul>

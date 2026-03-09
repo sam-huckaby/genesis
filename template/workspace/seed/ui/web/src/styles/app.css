@@ -32,10 +32,12 @@ body {
   margin: 8px 0 0 0;
 }
 
-.app-title {
+.app-title-link {
   font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.04em;
+  color: var(--text);
+  text-decoration: none;
 }
 
 .app-nav {
@@ -50,6 +52,48 @@ body {
   padding: 6px 10px;
   border-radius: 8px;
   background: var(--card-bg);
+  border: 2px solid transparent;
+  position: relative;
+  overflow: hidden;
+}
+
+.app-nav a.active {
+  border-color: var(--card-border);
+}
+
+.app-nav a.is-new {
+  border-color: rgba(193, 123, 58, 0.45);
+}
+
+.app-nav a.is-new::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(120deg, transparent 26%, rgba(193, 123, 58, 0.72) 50%, transparent 74%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: navNewShimmer 2.8s ease-in-out infinite;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+@keyframes navNewShimmer {
+  from {
+    transform: translateX(-140%);
+  }
+  to {
+    transform: translateX(140%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-nav a.is-new::before {
+    animation: none;
+    opacity: 0.4;
+  }
 }
 
 .nav-fade-in {

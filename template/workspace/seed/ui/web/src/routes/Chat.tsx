@@ -7,7 +7,7 @@ import {
   type ChangeEvent,
   type ReactNode
 } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client.js";
 import Button from "../components/Button.js";
 import ChatBubble from "../components/ChatBubble.js";
@@ -58,9 +58,10 @@ function renderWithHighlights(text: string, selections: Selection[]): ReactNode[
 }
 
 export default function Chat() {
-  const [params] = useSearchParams();
-  const project = params.get("project") ?? "";
-  const modeParam = params.get("mode");
+  const [searchParams] = useSearchParams();
+  const { project: projectParam } = useParams<{ project: string }>();
+  const project = projectParam ?? "";
+  const modeParam = searchParams.get("mode");
   const [conversations, setConversations] = useState<ProjectChatConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ProjectChatMessage[]>([]);
@@ -449,6 +450,9 @@ export default function Chat() {
       start: activeSelection.start,
       end: activeSelection.end
     });
+    window.dispatchEvent(new CustomEvent("seed:project-nav-updated", {
+      detail: { project }
+    }));
     setSelections((prev: Selection[]) => [...prev, activeSelection]);
     setActiveSelection(null);
   };

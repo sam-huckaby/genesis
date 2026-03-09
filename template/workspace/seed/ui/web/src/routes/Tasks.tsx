@@ -1,4 +1,5 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import { apiGet } from "../api/client.js";
 
 type Task = {
@@ -8,8 +9,6 @@ type Task = {
   subtasks: Task[];
 };
 
-type ProjectSummary = { name: string };
-
 type TaskGroups = {
   backlog: Task[];
   active: Task[];
@@ -17,83 +16,59 @@ type TaskGroups = {
 };
 
 export default function Tasks() {
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [selectedProject, setSelectedProject] = useState<string>("");
+  const { project: projectParam } = useParams<{ project: string }>();
+  const project = projectParam ?? "";
   const [groups, setGroups] = useState<TaskGroups>({ backlog: [], active: [], done: [] });
 
   useEffect(() => {
-    apiGet<{ projects: ProjectSummary[] }>("/api/onboarding/state")
-      .then((data) => setProjects(data.projects ?? []))
-      .catch(() => setProjects([]));
-  }, []);
-
-  const loadTasks = async (projectName: string) => {
-    if (!projectName) {
+    if (!project) {
+      setGroups({ backlog: [], active: [], done: [] });
       return;
     }
-    try {
-      const data = await apiGet<TaskGroups>(`/api/projects/${projectName}/tasks`);
-      setGroups(data);
-    } catch {
-      setGroups({ backlog: [], active: [], done: [] });
-    }
-  };
+    apiGet<TaskGroups>(`/api/projects/${encodeURIComponent(project)}/tasks`)
+      .then((data) => setGroups(data))
+      .catch(() => setGroups({ backlog: [], active: [], done: [] }));
+  }, [project]);
+
+  if (!project) {
+    return (
+      <section>
+        <h1>Tasks</h1>
+        <p>Open a project to view tasks.</p>
+      </section>
+    );
+  }
 
   return (
     <section>
       <h1>Tasks</h1>
-      <div className="panel">
-        <label>
-          Project
-          <select
-            value={selectedProject}
-            onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-              const value = event.target.value;
-              setSelectedProject(value);
-              loadTasks(value);
-            }}
-          >
-            <option value="">Select a project</option>
-            {projects.map((project: ProjectSummary) => (
-              <option key={project.name} value={project.name}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      <p className="muted">Project: {project}</p>
 
       <div className="task-board">
         <div className="task-column">
           <h2>Backlog</h2>
-          {groups.backlog.map((task) => (
+          {groups.backlog.map((task: Task) => (
             <div key={task.id} className="task-card">
               <strong>{task.title}</strong>
-              {task.subtasks.length ? (
-                <span>{task.subtasks.length} subtasks</span>
-              ) : null}
+              {task.subtasks.length ? <span>{task.subtasks.length} subtasks</span> : null}
             </div>
           ))}
         </div>
         <div className="task-column">
           <h2>Active</h2>
-          {groups.active.map((task) => (
+          {groups.active.map((task: Task) => (
             <div key={task.id} className="task-card">
               <strong>{task.title}</strong>
-              {task.subtasks.length ? (
-                <span>{task.subtasks.length} subtasks</span>
-              ) : null}
+              {task.subtasks.length ? <span>{task.subtasks.length} subtasks</span> : null}
             </div>
           ))}
         </div>
         <div className="task-column">
           <h2>Done</h2>
-          {groups.done.map((task) => (
+          {groups.done.map((task: Task) => (
             <div key={task.id} className="task-card">
               <strong>{task.title}</strong>
-              {task.subtasks.length ? (
-                <span>{task.subtasks.length} subtasks</span>
-              ) : null}
+              {task.subtasks.length ? <span>{task.subtasks.length} subtasks</span> : null}
             </div>
           ))}
         </div>

@@ -79,6 +79,27 @@ export type SaveProjectBriefRequest = {
   briefText: string;
 };
 
+export type ProjectNavState = {
+  projectName: string;
+  tasksUnlocked: boolean;
+  reviewUnlocked: boolean;
+  chatSeen: boolean;
+  tasksSeen: boolean;
+  reviewSeen: boolean;
+};
+
+export type WorkspaceNavState = {
+  discoveryUnlocked: boolean;
+  projectsUnlocked: boolean;
+  discoverySeen: boolean;
+  projectsSeen: boolean;
+};
+
+export type NavSeenRequest = {
+  realm: "workspace" | "project";
+  item: "discovery" | "projects" | "chat" | "tasks" | "review";
+};
+
 export type ProjectBuildPromptRequest = {
   prompt: string;
 };

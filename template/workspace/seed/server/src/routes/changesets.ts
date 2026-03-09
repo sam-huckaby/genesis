@@ -17,6 +17,7 @@ import {
   updateChangesetFiles,
   type DiffFile
 } from "../kernel/changesets.js";
+import { unlockProjectNavFeature } from "../util/nav_unlocks.js";
 import type {
   ChangesetDetail,
   ChangesetProposalRequest,
@@ -53,6 +54,7 @@ export function registerChangesetRoutes(
           summary: body.summary,
           diff: body.diff
         });
+        unlockProjectNavFeature(context.db, body.projectName, "review");
         const response: ChangesetProposalResponse = { changesetId: result.changesetId };
         return response;
       } catch (error) {
@@ -74,12 +76,30 @@ export function registerChangesetRoutes(
     }
   );
 
-  server.get("/api/changesets/pending", async () => {
-    const rows = context.db
-      .prepare(
-        "SELECT id, summary, status, created_at FROM changesets WHERE status IN ('pending', 'blocked', 'rebuilding', 'draft') ORDER BY created_at DESC"
-      )
-      .all() as { id: number; summary: string; status: string; created_at: string }[];
+  server.get("/api/changesets/pending", async (request: FastifyRequest, reply: FastifyReply) => {
+    const query = request.query as { project?: string };
+    let rows: { id: number; summary: string; status: string; created_at: string }[] = [];
+
+    if (query.project) {
+      const project = context.db
+        .prepare("SELECT id FROM projects WHERE name = ?")
+        .get(query.project) as { id: number } | undefined;
+      if (!project) {
+        return reply.status(404).send({ error: "Project not found" });
+      }
+
+      rows = context.db
+        .prepare(
+          "SELECT id, summary, status, created_at FROM changesets WHERE project_id = ? AND status IN ('pending', 'blocked', 'rebuilding', 'draft') ORDER BY created_at DESC"
+        )
+        .all(project.id) as { id: number; summary: string; status: string; created_at: string }[];
+    } else {
+      rows = context.db
+        .prepare(
+          "SELECT id, summary, status, created_at FROM changesets WHERE status IN ('pending', 'blocked', 'rebuilding', 'draft') ORDER BY created_at DESC"
+        )
+        .all() as { id: number; summary: string; status: string; created_at: string }[];
+    }
 
     const response: ChangesetSummary[] = rows.map((row) => ({
       id: row.id,

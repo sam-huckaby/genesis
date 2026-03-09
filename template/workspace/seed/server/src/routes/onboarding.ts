@@ -10,6 +10,13 @@ import {
   getOpenAiAuthSummary,
   saveOpenAiApiKey
 } from "../kernel/openai_auth.js";
+import {
+  ensureWorkspaceNavUnlockState,
+  markProjectNavItemSeen,
+  markWorkspaceNavItemSeen,
+  unlockWorkspaceNavFeature
+} from "../util/nav_unlocks.js";
+import type { NavSeenRequest } from "@shared/types";
 
 type RouteContext = {
   workspaceDir: string;
@@ -44,12 +51,17 @@ export function registerOnboardingRoutes(
     const projects = context.db
       .prepare("SELECT name, type, root_path_rel FROM projects ORDER BY id")
       .all();
+    const workspaceNav = ensureWorkspaceNavUnlockState(context.db, {
+      hasAuth: hasApiKey,
+      hasProjects: projects.length > 0
+    });
 
     return {
       hasApiKey,
       openaiAuth,
       projects,
-      activeProject: config.activeProject ?? null
+      activeProject: config.activeProject ?? null,
+      workspaceNav
     };
   });
 
@@ -70,6 +82,7 @@ export function registerOnboardingRoutes(
         return reply.status(400).send({ ok: false, error: "Unsupported provider" });
       }
       saveOpenAiApiKey(context.workspaceDir, apiKey);
+      unlockWorkspaceNavFeature(context.db, "discovery");
 
       recordEvent(context.db, "onboarding.api_key_set", { provider });
 
@@ -102,6 +115,7 @@ export function registerOnboardingRoutes(
       const body = request.body as { input?: string };
       try {
         await completeOpenAiOAuthFromManualInput(context.workspaceDir, body?.input ?? "");
+        unlockWorkspaceNavFeature(context.db, "discovery");
         recordEvent(context.db, "onboarding.openai_oauth_set", { mode: "manual" });
         return { ok: true };
       } catch (error) {
@@ -109,4 +123,29 @@ export function registerOnboardingRoutes(
       }
     }
   );
+
+  server.post("/api/nav/seen", async (request: FastifyRequest, reply: FastifyReply) => {
+    const body = request.body as NavSeenRequest;
+    if (!body?.realm || !body?.item) {
+      return reply.status(400).send({ ok: false, error: "Missing realm or item" });
+    }
+
+    if (body.realm === "workspace") {
+      if (body.item !== "discovery" && body.item !== "projects") {
+        return reply.status(400).send({ ok: false, error: "Invalid workspace nav item" });
+      }
+      markWorkspaceNavItemSeen(context.db, body.item);
+      return { ok: true };
+    }
+
+    if (body.realm === "project") {
+      if (body.item !== "chat" && body.item !== "tasks" && body.item !== "review") {
+        return reply.status(400).send({ ok: false, error: "Invalid project nav item" });
+      }
+      markProjectNavItemSeen(context.db, body.item);
+      return { ok: true };
+    }
+
+    return reply.status(400).send({ ok: false, error: "Invalid realm" });
+  });
 }

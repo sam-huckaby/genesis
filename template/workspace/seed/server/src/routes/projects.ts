@@ -9,9 +9,11 @@ import { applyPatchSet } from "../kernel/patch.js";
 import { runBuildLoop } from "../kernel/build_loop.js";
 import { recordEvent } from "../storage/events.js";
 import { resolveOpenAiCredential } from "../kernel/openai_auth.js";
+import { ensureProjectNavUnlockState, unlockWorkspaceNavFeature } from "../util/nav_unlocks.js";
 import type {
   CreateProjectRequest,
   CreateProjectResponse,
+  ProjectNavState,
   ProjectBuildLoopRequest,
   ProjectBuildLoopResponse,
   ProjectBuildRunResponse,
@@ -192,6 +194,8 @@ export function registerProjectRoutes(
         );
       }
 
+      unlockWorkspaceNavFeature(context.db, "projects");
+
       const response: CreateProjectResponse = {
         project: {
           name,
@@ -202,6 +206,35 @@ export function registerProjectRoutes(
         nextSteps: [{ message: "Review and accept suggested tasks." }]
       };
 
+      return response;
+    }
+  );
+
+  server.get(
+    "/api/projects/:name/nav",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const name = (request.params as { name?: string }).name;
+      if (!name) {
+        return reply.status(400).send({ error: "Missing project name" });
+      }
+
+      const project = context.db
+        .prepare("SELECT id, name FROM projects WHERE name = ?")
+        .get(name) as { id: number; name: string } | undefined;
+
+      if (!project) {
+        return reply.status(404).send({ error: "Project not found" });
+      }
+
+      const unlocked = ensureProjectNavUnlockState(context.db, project);
+      const response: ProjectNavState = {
+        projectName: project.name,
+        tasksUnlocked: unlocked.tasksUnlocked,
+        reviewUnlocked: unlocked.reviewUnlocked,
+        chatSeen: unlocked.chatSeen,
+        tasksSeen: unlocked.tasksSeen,
+        reviewSeen: unlocked.reviewSeen
+      };
       return response;
     }
   );

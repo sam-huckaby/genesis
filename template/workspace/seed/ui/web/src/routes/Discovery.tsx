@@ -160,9 +160,9 @@ export default function Discovery() {
         prompt: buildPrompt
       });
 
-      window.dispatchEvent(new Event("seed:projects-updated"));
+      window.dispatchEvent(new Event("seed:workspace-nav-updated"));
       window.localStorage.setItem(`seed.chatMode.${createdName}`, "build");
-      navigate(`/chat?project=${createdName}&mode=build`);
+      navigate(`/projects/${encodeURIComponent(createdName)}/chat?mode=build`);
     } catch {
       setMessage("Project creation failed.");
       setIsCreating(false);

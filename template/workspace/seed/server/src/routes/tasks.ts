@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type Database from "better-sqlite3";
 import { recordEvent } from "../storage/events.js";
+import { unlockProjectNavFeature } from "../util/nav_unlocks.js";
 import type {
   AcceptTasksRequest,
   AcceptTasksResponse,
@@ -126,6 +127,8 @@ export function registerTaskRoutes(
         insertTask(context.db, project.id, task);
       }
 
+      unlockProjectNavFeature(context.db, body.projectName, "tasks");
+
       recordEvent(context.db, "tasks.accepted", { count: body.tasks.length }, project.id);
 
       const response: AcceptTasksResponse = { ok: true };
@@ -182,6 +185,13 @@ export function registerTaskRoutes(
         "INSERT INTO task_selections (message_id, task_id, start_offset, end_offset, snippet) VALUES (?, ?, ?, ?, ?)"
       );
       selStmt.run(msg.id, taskId, start, end, snippet);
+
+      const projectNameRow = context.db
+        .prepare("SELECT name FROM projects WHERE id = ?")
+        .get(msg.project_id) as { name: string } | undefined;
+      if (projectNameRow?.name) {
+        unlockProjectNavFeature(context.db, projectNameRow.name, "tasks");
+      }
 
       recordEvent(context.db, "task.from_selection", { taskId, messageId: msg.id }, msg.project_id);
 

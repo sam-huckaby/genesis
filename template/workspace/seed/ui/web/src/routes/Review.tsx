@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
 import { apiGet, apiPost } from "../api/client.js";
 import Button from "../components/Button.js";
 import type {
@@ -66,6 +67,8 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 export default function Review() {
+  const { project: projectParam } = useParams<{ project: string }>();
+  const project = projectParam ?? "";
   const [changesets, setChangesets] = useState<ChangesetSummary[]>([]);
   const [selected, setSelected] = useState<ChangesetDetail | null>(null);
   const [view, setView] = useState<DiffView>("inline");
@@ -80,8 +83,14 @@ export default function Review() {
   const toastTimer = useRef<number | null>(null);
 
   const loadChangesets = async () => {
+    if (!project) {
+      setChangesets([]);
+      return;
+    }
     try {
-      const data = await apiGet<{ changesets: ChangesetSummary[] }>("/api/changesets/pending");
+      const data = await apiGet<{ changesets: ChangesetSummary[] }>(
+        `/api/changesets/pending?project=${encodeURIComponent(project)}`
+      );
       setChangesets(data.changesets ?? []);
     } catch {
       setChangesets([]);
@@ -100,13 +109,33 @@ export default function Review() {
   };
 
   useEffect(() => {
+    if (!project) {
+      setChangesets([]);
+      setSelected(null);
+      setChatMessages([]);
+      return;
+    }
+    setSelected(null);
+    setChatMessages([]);
+    setMessage(null);
+    setTestWarning(null);
+    setIsTesting(false);
     loadChangesets();
     return () => {
       if (toastTimer.current) {
         window.clearTimeout(toastTimer.current);
       }
     };
-  }, []);
+  }, [project]);
+
+  if (!project) {
+    return (
+      <section>
+        <h1>Review</h1>
+        <p>Open a project to review proposals.</p>
+      </section>
+    );
+  }
 
   const loadChangeset = async (id: number) => {
     setMessage(null);
@@ -231,6 +260,7 @@ export default function Review() {
       <header className="review-header">
         <div>
           <h1>Review</h1>
+          <p className="muted">Project: {project}</p>
           <p className="muted">Verify proposals, test them, and accept changes when ready.</p>
         </div>
       </header>
