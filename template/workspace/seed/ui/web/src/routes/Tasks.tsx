@@ -1,33 +1,58 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, useParams } from "react-router-dom";
 import { apiGet } from "../api/client.js";
+import type { TaskBoardItem, TaskBoardResponse } from "@shared/types";
 
-type Task = {
-  id: number;
+const emptyBoard: TaskBoardResponse = {
+  todo: [],
+  inProgress: [],
+  inReview: [],
+  done: []
+};
+
+type TaskColumnProps = {
   title: string;
-  status: string;
-  subtasks: Task[];
+  tasks: TaskBoardItem[];
+  project: string;
+  footer?: ReactNode;
 };
 
-type TaskGroups = {
-  backlog: Task[];
-  active: Task[];
-  done: Task[];
-};
+function TaskColumn({ title, tasks, project, footer }: TaskColumnProps) {
+  return (
+    <div className="task-column">
+      <h2>{title}</h2>
+      <div className="task-column-list">
+        {tasks.length === 0 ? <p className="muted">No tasks.</p> : null}
+        {tasks.map((task) => (
+          <Link
+            key={task.id}
+            to={`/projects/${encodeURIComponent(project)}/tasks/${task.id}`}
+            className="task-card task-card-link"
+          >
+            <strong>{task.title}</strong>
+            <span className="muted">{new Date(task.updatedAt).toLocaleString()}</span>
+            {task.subtaskCount > 0 ? <span>{task.subtaskCount} subtasks</span> : null}
+          </Link>
+        ))}
+      </div>
+      {footer ? <div className="task-column-footer">{footer}</div> : null}
+    </div>
+  );
+}
 
 export default function Tasks() {
   const { project: projectParam } = useParams<{ project: string }>();
   const project = projectParam ?? "";
-  const [groups, setGroups] = useState<TaskGroups>({ backlog: [], active: [], done: [] });
+  const [groups, setGroups] = useState<TaskBoardResponse>(emptyBoard);
 
   useEffect(() => {
     if (!project) {
-      setGroups({ backlog: [], active: [], done: [] });
+      setGroups(emptyBoard);
       return;
     }
-    apiGet<TaskGroups>(`/api/projects/${encodeURIComponent(project)}/tasks`)
+    apiGet<TaskBoardResponse>(`/api/projects/${encodeURIComponent(project)}/tasks`)
       .then((data) => setGroups(data))
-      .catch(() => setGroups({ backlog: [], active: [], done: [] }));
+      .catch(() => setGroups(emptyBoard));
   }, [project]);
 
   if (!project) {
@@ -45,33 +70,19 @@ export default function Tasks() {
       <p className="muted">Project: {project}</p>
 
       <div className="task-board">
-        <div className="task-column">
-          <h2>Backlog</h2>
-          {groups.backlog.map((task: Task) => (
-            <div key={task.id} className="task-card">
-              <strong>{task.title}</strong>
-              {task.subtasks.length ? <span>{task.subtasks.length} subtasks</span> : null}
-            </div>
-          ))}
-        </div>
-        <div className="task-column">
-          <h2>Active</h2>
-          {groups.active.map((task: Task) => (
-            <div key={task.id} className="task-card">
-              <strong>{task.title}</strong>
-              {task.subtasks.length ? <span>{task.subtasks.length} subtasks</span> : null}
-            </div>
-          ))}
-        </div>
-        <div className="task-column">
-          <h2>Done</h2>
-          {groups.done.map((task: Task) => (
-            <div key={task.id} className="task-card">
-              <strong>{task.title}</strong>
-              {task.subtasks.length ? <span>{task.subtasks.length} subtasks</span> : null}
-            </div>
-          ))}
-        </div>
+        <TaskColumn title="To Do" tasks={groups.todo} project={project} />
+        <TaskColumn title="In Progress" tasks={groups.inProgress} project={project} />
+        <TaskColumn title="In Review" tasks={groups.inReview} project={project} />
+        <TaskColumn
+          title="Done"
+          tasks={groups.done}
+          project={project}
+          footer={
+            <Link to={`/projects/${encodeURIComponent(project)}/tasks/done`} className="primary-link">
+              View all done tasks
+            </Link>
+          }
+        />
       </div>
     </section>
   );

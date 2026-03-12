@@ -176,6 +176,63 @@ export type TaskSelectionResponse = {
   taskId: number;
 };
 
+export type TaskStatus = "todo" | "in_progress" | "in_review" | "done";
+
+export type TaskBoardItem = {
+  id: number;
+  title: string;
+  status: TaskStatus;
+  subtaskCount: number;
+  updatedAt: string;
+  doneAt?: string | null;
+};
+
+export type TaskBoardResponse = {
+  todo: TaskBoardItem[];
+  inProgress: TaskBoardItem[];
+  inReview: TaskBoardItem[];
+  done: TaskBoardItem[];
+};
+
+export type TaskDoneListResponse = {
+  tasks: TaskBoardItem[];
+};
+
+export type TaskSelectionContext = {
+  messageId: number;
+  start: number;
+  end: number;
+  snippet: string;
+};
+
+export type TaskDetail = {
+  id: number;
+  projectId: number;
+  parentTaskId: number | null;
+  title: string;
+  context: string;
+  status: TaskStatus;
+  createdAt: string;
+  updatedAt: string;
+  doneAt: string | null;
+  selection: TaskSelectionContext | null;
+};
+
+export type TaskDetailResponse = {
+  task: TaskDetail | null;
+};
+
+export type UpdateTaskRequest = {
+  title?: string;
+  context?: string;
+  status?: TaskStatus;
+};
+
+export type UpdateTaskResponse = {
+  ok: boolean;
+  task: TaskDetail;
+};
+
 export type ProjectChatMessage = {
   id: number;
   conversationId?: number;

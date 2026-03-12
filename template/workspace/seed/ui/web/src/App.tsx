@@ -12,6 +12,8 @@ import Onboarding from "./routes/Onboarding.js";
 import Discovery from "./routes/Discovery.js";
 import Projects from "./routes/Projects.js";
 import Tasks from "./routes/Tasks.js";
+import TaskDetailPage from "./routes/TaskDetail.js";
+import DoneTasksPage from "./routes/DoneTasks.js";
 import Chat from "./routes/Chat.js";
 import Review from "./routes/Review.js";
 import Settings from "./routes/Settings.js";
@@ -50,7 +52,7 @@ export default function App() {
   const [workspaceNavState, setWorkspaceNavState] = useState<WorkspaceNavState | null>(null);
   const [projectNavState, setProjectNavState] = useState<ProjectNavState | null>(null);
   const projectMatch = useMemo(
-    () => location.pathname.match(/^\/projects\/([^/]+)\/(chat|tasks|review)\/?$/),
+    () => location.pathname.match(/^\/projects\/([^/]+)\/(chat|tasks|review)(?:\/.*)?$/),
     [location.pathname]
   );
   const activeProject = projectMatch ? decodeURIComponent(projectMatch[1] ?? "") : "";
@@ -305,6 +307,8 @@ export default function App() {
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/:project/chat" element={<Chat />} />
           <Route path="/projects/:project/tasks" element={<Tasks />} />
+          <Route path="/projects/:project/tasks/done" element={<DoneTasksPage />} />
+          <Route path="/projects/:project/tasks/:taskId" element={<TaskDetailPage />} />
           <Route path="/projects/:project/review" element={<Review />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/chat" element={<LegacyProjectRedirect section="chat" />} />

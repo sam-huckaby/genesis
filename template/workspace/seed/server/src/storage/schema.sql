@@ -11,8 +11,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   project_id INTEGER NOT NULL,
   parent_task_id INTEGER,
   title TEXT NOT NULL,
+  context TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  done_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS events (

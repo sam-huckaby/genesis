@@ -39,6 +39,26 @@ export function runMigrations(db: Database.Database, baseDir: string) {
     db.exec("ALTER TABLE changesets ADD COLUMN chat_session_id TEXT");
   }
 
+  const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+  const taskNames = new Set(taskColumns.map((col) => col.name));
+  if (!taskNames.has("context")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN context TEXT NOT NULL DEFAULT ''");
+  }
+  if (!taskNames.has("updated_at")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN updated_at TEXT");
+  }
+  if (!taskNames.has("done_at")) {
+    db.exec("ALTER TABLE tasks ADD COLUMN done_at TEXT");
+  }
+
+  db.exec("UPDATE tasks SET status = 'todo' WHERE status = 'backlog'");
+  db.exec("UPDATE tasks SET status = 'in_progress' WHERE status = 'active'");
+  db.exec("UPDATE tasks SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''");
+  db.exec(
+    "UPDATE tasks SET done_at = COALESCE(done_at, updated_at, created_at) WHERE status = 'done'"
+  );
+  db.exec("UPDATE tasks SET done_at = NULL WHERE status != 'done'");
+
   const messageColumns = db.prepare("PRAGMA table_info(messages)").all() as { name: string }[];
   const messageNames = new Set(messageColumns.map((col) => col.name));
   if (!messageNames.has("kind")) {
